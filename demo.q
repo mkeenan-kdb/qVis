@@ -111,7 +111,8 @@ delete m from `.;
         "bar chart - total volume by symbol";
         "live watch - tail of trade, 1s refresh";
         "LIVE candlestick - synthetic random-walk feed";
-        "LIVE table tail - a graphical tail -f");
+        "LIVE table tail - a graphical tail -f";
+        "dashboard - plot/candle/bar/tab tiled in one window");
   code:(".vis.plot select time, price from trade where date=max date, sym=`AAPL";
         ".vis.plot flip exec close by sym from daily";
         ".vis.plot sensors";
@@ -127,7 +128,8 @@ delete m from `.;
         "{.vis.bar[key x;value x]} exec sum volume by sym from daily";
         ".vis.watch[`trade;1000]";
         ".vis.watchAs[.demo.feed;250;`candle]";
-        ".vis.watchAs[.demo.feed;250;`tab]"));
+        ".vis.watchAs[.demo.feed;250;`tab]";
+        ".vis.dash ((`plot;{select time,close from .demo.feed[]};0 0 1 1;250);(`candle;.demo.feed;1 0 1 1;250);(`bar;{r:last .demo.feed[]; ([] metric:`open`high`low`close; v:r`open`high`low`close)};0 1 1 1;250);(`tab;.demo.feed;1 1 1 1;250))"));
 
 .demo.menu:{[]
   -1"\nqVis inspector demo - type demo N to run one:\n";

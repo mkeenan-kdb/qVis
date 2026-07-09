@@ -94,11 +94,43 @@ ok["color plus"; (.qvis.green;.qvis.cyan;.qvis.green)~.vis.charColors "1+2"];
 ok["color exp";  all .qvis.green=.vis.charColors "1e+5"];
 ok["color esc";  all .qvis.magenta=.vis.charColors "\"a\\\"b\""];
 
-/ min/max downsampling preserves spikes
-spike:@[1000#0f;500;:;99f];
-ok["dsamp spike"; 99f in .vis.dsamp[100;spike]];
-ok["dsamp len";   200=count .vis.dsamp[100;spike]];
-ok["dsamp short"; (til 5)~.vis.dsamp[10;til 5]];
+/ null/infinity filtering - .vis.nice throws 'domain on a bare 0w, so every
+/ chart must strip it before computing a range
+ok["bad";     0110b~.vis.bad 1 0N 0w 3f];
+ok["finite";  1 3f~.vis.finite 1 0N 0w 3f];
+
+/ shared y-scale helper (tick/plotline/candleDraw/barDraw all use this)
+ok["py 1"; 25=.vis.py[0;100;0f;200f;150f]];
+ok["py 2"; 34=.vis.py[10;50;0f;10f;5f]];
+
+/ nearest-point lookup for the plot crosshair - unsorted x is fine (a
+/ temporal column need not be sorted), it's a linear scan not a bin search
+ok["nearest exact"; 2=.vis.nearest[10 20 30f;30f]];
+ok["nearest closer"; 1=.vis.nearest[10 20 30f;22f]];
+ok["nearest unsorted"; 1=.vis.nearest[30 10 20f;11f]];
+
+/ min/max downsampling by real x-bucket preserves spikes, placed at the
+/ pixel column the spike actually falls in - not respaced by index
+xs:"f"$til 1000; spike:@[1000#0f;500;:;99f];
+r:.vis.dsampxy[100;0f;999f;xs;spike];
+ok["dsampxy spike"; 99f in r 1];
+ok["dsampxy len";   200=count r 1];
+ok["dsampxy short"; ("f"$til 5;"f"$til 5)~.vis.dsampxy[10;0f;4f;"f"$til 5;"f"$til 5]];
+
+/ .vis.plotPrep - regression: filtering by a boolean mask must go through
+/ `where` (index positions), not use the raw boolean as an index directly -
+/ the latter collapses the whole series to xs[1] repeated, since q indexes
+/ a vector by 0/1 booleans as positions, not as a keep/drop filter
+xs:"f"$til 2000; ser:"f"$til 2000;             / no bad values at all - ok is all-true
+pp:.vis.plotPrep[500;0f;1999f;xs;ser];
+ok["plotPrep no collapse"; 1900<max pp 0];     / must span close to the full range
+ok["plotPrep spread"; 1<count distinct pp 0];
+/ a few bad x/y values mixed into an otherwise-fine series are dropped, not
+/ just the bad ones - the rest of the series survives untouched
+xs2:@[xs;10 20;:;0w -0w]; ser2:@[ser;30;:;0n];
+pp2:.vis.plotPrep[500;0f;1999f;xs2;ser2];
+ok["plotPrep drops bad"; 1900<max pp2 0];
+ok["plotPrep short"; (::)~.vis.plotPrep[500;0f;1f;enlist 1f;enlist 1f]];
 
 / repl editor ops (pure state-dict transforms, no window needed)
 est:`lines`cy`cx`off`out`ooff`rc`fc`capture!(enlist "";0;0;0;();0;0;0;1b);
@@ -221,10 +253,25 @@ ok["fmtx p days";  "2000.01.03"~.vis.fmtx["p";0f;1e15;172800000000000f]];
 ok["fmtx plain";   "1.5K"~.vis.fmtx[" ";0f;1e4;1500f]];
 
 / plot state extraction: numeric cols are series, temporal col sets x range
+/ and each series' own x-position (real time, not row index)
 pst:.vis.plotState ([] time:09:30:00.000+1000*til 10; price:10f+til 10; s:10#`a);
 ok["plotState ys"; (enlist "price")~pst`nms];
 ok["plotState xt"; "t"=pst`xt];
 ok["plotState xr"; (34200000f;34209000f)~pst`xlo`xhi];
+ok["plotState xss"; 1=count pst`xss];
+ok["plotState xss vals"; ("f"$34200000+1000*til 10)~first pst`xss];
+
+/ an infinite value in the time column must not throw 'domain - it just
+/ doesn't count toward the axis range (see .vis.finite)
+pstInf:@[.vis.plotState;([] time:09:30:00.000 0Wt; price:1 2f);{`$"ERR: ",x}];
+ok["plotState inf time no throw"; 99h=type pstInf];
+
+/ scatter captures the x column's type char for temporal tick formatting;
+/ .vis.RUN:1b first so .vis.open just pushes onto the stack, no real window
+.vis.RUN:1b;
+.vis.scatter[09:30:00.000 09:31:00.000;1 2f];
+ok["scatter xt"; "t"=(last .vis.STACK)[`state;`xt]];
+.vis.RUN:0b; .vis.STACK:();
 
 / candle OHLC bucketing preserves shape (first/max/min/last per bucket)
 cb:.vis.obucket[2;1 2 3 4f;5 6 7 8f;0 1 2 3f;1.5 2.5 3.5 4.5f];
@@ -236,6 +283,7 @@ ow:.vis.WROWS; .vis.WROWS:5;
 ok["wfetch tail";  (95+til 5)~(.vis.wfetch ([] a:til 100))`a];
 ok["wfetch name";  .smoketest.t~.vis.wfetch `.smoketest.t];
 ok["wfetch fn";    ([] a:1 2)~.vis.wfetch {([] a:1 2)}];
+ok["wfetch keyed"; ([] sym:`a`b; v:1 2)~.vis.wfetch {([sym:`a`b] v:1 2)}];
 .vis.WROWS:ow;
 
 / watch view kinds: candle state extraction and the tail-pinned table state
@@ -247,7 +295,22 @@ ok["candleState time"; "t"=(.vis.candleState ([] time:09:00:00.000 09:00:01.000;
 tls:.vis.tailState ([] a:til 100);
 ok["tailState off";   (100-.vis.TROWS)=tls`off];
 ok["tailState n";     100=tls`n];
-ok["wkind";           `plot`candle`tab~key .vis.WKIND];
+ok["wkind";           `plot`candle`tab`hist`bar~key .vis.WKIND];
+
+/ hist/bar as watch/dash kinds: state builder picks columns automatically
+hst:.vis.histState ([] v:1 2 3 4 5f);
+ok["histState keys"; `mn`rg`c~key hst];
+bst:.vis.barState ([] sym:`a`b`c; v:1 2 3f);
+ok["barState lbl"; (enlist "a";enlist "b";enlist "c")~bst`lbl];
+ok["barState v";   1 2 3f~bst`v];
+bst2:.vis.barState ([] a:1 2 3f);              / no label column - falls back to row index
+ok["barState fallback"; (enlist "0";enlist "1";enlist "2")~bst2`lbl];
+
+/ watchView builds the same view dict .vis.watchAs would open, without
+/ touching the window - this is exactly what a dashboard panel zooms into
+wv:.vis.watchView[`.smoketest.t;1000;`tab];
+ok["watchView name"; (`$"watch-tab")~wv`name];
+ok["watchView kind bad"; "'"=first .[.vis.watchView;(`x;1;`nope);{"'",x}]];
 
 / /filter: where-clause pushes a filtered table view, bad clauses report
 fv:.vis.tabView[([] a:1 2 3; s:`x`y`x);`t];
@@ -296,6 +359,50 @@ ok["cellMenu num"; 4=count .vis.MENU`items];
 .vis.cellMenu[.vis.st[];`s;0;::];
 ok["cellMenu sym"; 3=count .vis.MENU`items];
 .vis.MENU:(); .vis.STACK:();
+
+/ dashboard: pixel box math is pure - no window needed
+dspec:((`plot;([] a:1 2f);0 0 1 1);(`bar;([] sym:`x`y;v:1 2f);1 0 1 1;500));
+dnm:.vis.dashNorm dspec;
+ok["dashNorm default ms"; 1000=dnm[0][3]];
+ok["dashNorm keeps ms";   500=dnm[1][3]];
+
+dbx:.vis.dashBoxes dspec;
+ok["dashBoxes count"; 2=count dbx];
+ok["dashBoxes side by side"; (dbx[0]`outer)[0]<(dbx[1]`outer)[0]];
+
+/ dashBuild traps a bad panel as a `'msg symbol instead of throwing
+dbe:.vis.dashBuild[`plot;([] s:`a`b)];              / no numeric column
+ok["dashBuild err type"; -11h=type dbe];
+ok["dashBuild err text"; "'"=first string dbe];
+dbo:.vis.dashBuild[`hist;([] v:1 2 3f)];
+ok["dashBuild ok type"; 99h=type dbo];
+
+/ dashView builds every panel's state (with box injected) without opening
+/ a window
+ddv:.vis.dashView dspec;
+ok["dashView name";        `dash=ddv`name];
+ok["dashView pnls n";      2=count ddv[`state;`pnls]];
+ok["dashView box injected"; `box in key (ddv[`state;`pnls] 0)`vst];
+
+/ dashTick: due panels rebuild (lp advances), not-yet-due panels pass through
+dpnl:ddv[`state;`pnls] 0;
+dpnl[`lp]:.z.P;                                     / just refreshed - not due
+ok["dashTick not due"; dpnl~.vis.dashTick dpnl];
+dpnl[`lp]:.z.P-0D00:00:02;                          / 2s ago - due for a 1000ms panel
+dtk:.vis.dashTick dpnl;
+ok["dashTick due rebuilds"; dtk[`lp]>dpnl`lp];
+ok["dashTick keeps box";    (dpnl`box)~dtk[`vst]`box];
+
+/ .vis.st/.vis.put/.vis.putAll honour the STO override dash panels render
+/ through (so the reused draw fns' state read/writes land on the panel, not
+/ the view stack), falling back to the stack when STO is (::)
+.vis.STO:`a`b!1 2;
+.vis.put[`a;9];
+ok["STO put";    9=.vis.STO`a];
+ok["STO st";     (.vis.STO)~.vis.st[]];
+.vis.putAll (enlist `c)!enlist 3;
+ok["STO putAll"; (enlist `c)~key .vis.STO];
+.vis.STO:(::);
 
 -1 "all smoke tests passed";
 exit 0

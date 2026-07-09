@@ -11,7 +11,9 @@
 /   .vis.candle t     OHLC candlestick chart (open/high/low/close columns)
 /   .vis.bar[x;y]     bar chart of y values with x labels
 /   .vis.watch[t;ms]  live plot of a table's tail, re-fetched every ms
-/   .vis.watchAs[t;ms;k] live view of kind k: `plot, `candle or `tab
+/   .vis.watchAs[t;ms;k] live view of kind k: `plot, `candle, `tab, `hist or `bar
+/   .vis.dash panels  tile several live views into one window - click a panel
+/                     to zoom into it full-screen, esc returns to the grid
 /   .vis.db[]         partitioned-database overview
 /   .vis.mem[]        live memory monitor (.Q.w)
 /   .vis.repl[]       q editor/REPL: type multiline q code, cmd+enter runs it
@@ -40,6 +42,13 @@ if[()~@[key;`.qvis;()];
 / Constants and state
 / ---------------------------------------------------------------------------
 .vis.W:850; .vis.H:450; .vis.SC:2;
+.vis.BOX:(56;24;.vis.W-72;.vis.H-60);       / default chart plot area (x0;y0;pw;ph)
+.vis.TBOX:(8;18;.vis.W-16;.vis.H-53);       / default table-browser box
+.vis.boxOr:{[st;dflt] $[`box in key st; st`box; dflt]}  / dashboard panels override this
+.vis.YLGUT:54;                              / gap reserved left of x0 for y-axis tick labels
+                                             / (56-2 in the default BOX above) - qSDL has no
+                                             / clip rect, so a dashboard panel must reserve
+                                             / this itself or its neighbour's labels bleed in
 .vis.TROWS:38;                              / visible rows in table/text views
 .vis.TXTC:130;                              / wrap width (chars) in text views
 .vis.BG:658448i; .vis.GRID:2105376i; .vis.BORD:2764856i;
@@ -91,9 +100,16 @@ if[()~@[key;`.qvis;()];
 .vis.popTo:{[i;e] .vis.STACK:(i+1) sublist .vis.STACK;}
 
 / current view's state dict / amend one key of it / replace it wholesale
-.vis.st:{[] (last .vis.STACK)`state}
-.vis.put:{[k;v] .[`.vis.STACK;(-1+count .vis.STACK;`state;k);:;v];}
-.vis.putAll:{[st] .[`.vis.STACK;(-1+count .vis.STACK;`state);:;st];}
+/ dashboard panels reuse the ordinary draw fns (tabDraw, plotDraw, ...), which
+/ all read/write "the current view's state" via .vis.st/.vis.put/.vis.putAll.
+/ While drawing one panel, .vis.dashPanelDraw points STO at that panel's own
+/ state dict so those calls land there instead of on the view stack; STO is
+/ (::) - not overridden - everywhere else
+.vis.STO:(::);
+.vis.st:{[] $[(::)~.vis.STO; (last .vis.STACK)`state; .vis.STO]}
+.vis.put:{[k;v]
+  $[(::)~.vis.STO; .[`.vis.STACK;(-1+count .vis.STACK;`state;k);:;v]; .vis.STO[k]::v];}
+.vis.putAll:{[st] $[(::)~.vis.STO; .[`.vis.STACK;(-1+count .vis.STACK;`state);:;st]; .vis.STO::st];}
 
 / edge-detected input from .qvis.poll, plus the inspector's own gestures:
 / esc = back (quits at the root view), window close button = quit. Every
@@ -202,6 +218,19 @@ if[()~@[key;`.qvis;()];
 / ---------------------------------------------------------------------------
 / Pure helpers
 / ---------------------------------------------------------------------------
+/ null or +-infinity - both break range/scale math (.vis.nice divides by the
+/ span, so a single 0w in a series throws 'domain instead of just drawing)
+.vis.bad:{(null x) or 0w=abs x}
+.vis.finite:{x where not .vis.bad x}
+
+/ scale a value (or vector) v in [lo;lo+rg] to a pixel y inside a y0..y0+ph
+/ box, flipped so larger values sit higher on screen - shared by every chart
+.vis.py:{[y0;ph;lo;rg;v] (y0+ph-1)-`long$(ph-1)*(v-lo)%rg}
+
+/ index of the xs element closest to v - xss isn't guaranteed sorted (a
+/ temporal column need not be), so this is a linear scan, not a binary search
+.vis.nearest:{[xs;v] d:abs xs-v; d?min d}
+
 .vis.r1:{string .01*"j"$100*x}
 .vis.r2:{string .001*"j"$1000*x}
 
@@ -250,7 +279,7 @@ if[()~@[key;`.qvis;()];
   px:x0+`long$(pw-1)*(v-xlo)%1e-9|xhi-xlo;
   .qvis.line[px;y0;px;y0+ph-1;.vis.GRID];
   s:.vis.fmtx[xt;xlo;xhi;v];
-  .qvis.text[0|(x0+pw-6*count s)&px-3*count s;y0+ph+4;1;.qvis.gray;s];}
+  .qvis.text[x0|(x0+pw-6*count s)&px-3*count s;y0+ph+4;1;.qvis.gray;s];}
 
 .vis.fmtnum:{ax:abs x:"f"$x;
   $[ax>=1e9;(.vis.r1 x%1e9),"B";ax>=1e6;(.vis.r1 x%1e6),"M";
@@ -369,7 +398,9 @@ if[()~@[key;`.qvis;()];
   $[1b~.Q.qp st`t; .Q.ind[st`t;i]; st[`t] i]}
 
 .vis.tabDraw:{[ev]
-  st:.vis.st[]; n:st`n; page:.vis.TROWS;
+  st:.vis.st[]; n:st`n;
+  bx:.vis.boxOr[st;.vis.TBOX]; x0:bx 0; y0:bx 1; pw:bx 2; ph:bx 3;
+  page:(ph-12) div 10;                      / rows that fit the box (38 at TBOX)
   off:.vis.scroll[ev;page;0|n-page;st`off]; .vis.put[`off;off];
   m:0|page&n-off;
   / cell cache: refetching + stringifying every frame is wasted work (and
@@ -381,21 +412,22 @@ if[()~@[key;`.qvis;()];
   colz:$[fresh; st`cc;
     [c:$[m>0; .vis.cells .vis.tabFetch[st;off;m]; count[st`hdrs]#enlist ()];
      .vis.put[`ck;ck]; .vis.put[`cc;c]; c]];
-  / left/right page through columns that don't fit the window
+  / left/right page through columns that don't fit the box
   nc:count st`hdrs; c0:st`c0;
   if[`left in ev`new; c0:0|c0-1];
   if[`right in ev`new; c0:(0|nc-1)&c0+1];
   .vis.put[`c0;c0];
   ws:.vis.widths[st`hdrs;colz];
   cs:c0 _ til nc;
-  xs:8+sums 0,-1_ws cs;
-  keep:where (xs+ws cs)<.vis.W;             / draw only columns that fit
-  .vis.tabCol[st;off]'[xs keep;(ws cs)keep;(st[`hdrs]cs)keep;(st[`cnames]cs)keep;(colz cs)keep];
-  {[st;off;i] .vis.spot[4;29+10*i;.vis.W-8;10;.vis.tabRow[st;off+i]]}[st;off] each til m;
+  xs:x0+sums 0,-1_ws cs;
+  keep:where (xs+ws cs)<x0+pw;               / draw only columns that fit
+  .vis.tabCol[st;off;y0]'[xs keep;(ws cs)keep;(st[`hdrs]cs)keep;(st[`cnames]cs)keep;(colz cs)keep];
+  {[x0;y0;pw;st;off;i] .vis.spot[x0-4;y0+11+10*i;pw+8;10;.vis.tabRow[st;off+i]]}
+    [x0;y0;pw;st;off] each til m;
   s:.vis.tabFoot[st;off;m];
   if[(c0>0) or nc>count keep;
     s,:"  cols ",(string c0+1),"-",(string c0+count keep),"/",(string nc)," (left/right)"];
-  .qvis.text[8;.vis.H-35;1;.qvis.gray;s];}
+  .qvis.text[x0;y0+ph;1;.qvis.gray;(pw div 6) sublist s];}  / clip to the box - a dash panel is narrower than the full window
 
 / click a row -> full record as "col: value" lines, untruncated
 .vis.tabRow:{[st;r;e]
@@ -403,12 +435,12 @@ if[()~@[key;`.qvis;()];
   ls:{[d;k](string k),": ",.Q.s1 d k}[d] each key d;
   .vis.push .vis.txtView[`$"row ",string r;.vis.wrap[.vis.TXTC;ls]];}
 
-.vis.tabCol:{[st;off;x0;w0;hdr;cn;cs]
-  .qvis.text[x0;18;1;.qvis.yellow;hdr];
-  .vis.spot[x0;16;w0;11;.vis.tabSort cn];
-  {[st;off;cn;x0;w0;i;s]
-    .qvis.text[x0;30+10*i;1;.qvis.white;20 sublist s];
-    .vis.spotR[x0;29+10*i;w0;10;.vis.cellMenu[st;cn;off+i]]}[st;off;cn;x0;w0]
+.vis.tabCol:{[st;off;y0;x0;w0;hdr;cn;cs]
+  .qvis.text[x0;y0;1;.qvis.yellow;hdr];
+  .vis.spot[x0;y0-2;w0;11;.vis.tabSort cn];
+  {[st;off;y0;cn;x0;w0;i;s]
+    .qvis.text[x0;y0+12+10*i;1;.qvis.white;20 sublist s];
+    .vis.spotR[x0;y0+11+10*i;w0;10;.vis.cellMenu[st;cn;off+i]]}[st;off;y0;cn;x0;w0]
     '[til count cs;cs];}
 
 / right-click on a cell: copy / filter-by-value / inspect, plus plot for
@@ -433,7 +465,7 @@ if[()~@[key;`.qvis;()];
   $[.vis.MAXSORT<st`n;
     .vis.RES:"'plot: ",(.vis.fmtnum st`n)," rows > .vis.MAXSORT";
     .vis.push .vis.plotView[enlist string cn;enlist "f"$.vis.col[st`t;cn];
-      " ";0f;"f"$0|-1+st`n]];}
+      enlist "f"$til st`n;" ";0f;"f"$0|-1+st`n]];}
 
 / sort = one iasc/idesc permutation kept in state; the table itself is never
 / copied, so the same path serves in-memory, splayed and partitioned tables
@@ -526,77 +558,136 @@ if[()~@[key;`.qvis;()];
 / ---------------------------------------------------------------------------
 / downsample to <=2*pw points: min and max of each pixel bucket, so a single
 / spike in a million points still shows instead of falling between samples
-.vis.dsamp:{[pw;ser]
-  n:count ser; if[n<=pw; :ser];
-  raze {(min x;max x)} each ser value group floor (til n)*pw%n}
+/ downsample by real x position (not row index) into <=pw pixel-wide buckets:
+/ each populated bucket keeps min and max y (so a spike still shows) at its
+/ bucket's own x - which is already the right pixel column, no re-spacing
+.vis.dsampxy:{[pw;xlo;xrg;xs;ser]
+  n:count ser; if[n<=pw; :(xs;ser)];
+  bi:`long$(pw-1)&0|floor (xs-xlo)*pw%xrg;
+  g:group bi; bx:asc key g;
+  mnmx:{(min x;max x)} each ser each g bx;
+  bxs:xlo+xrg*bx%pw;
+  (raze bxs,'bxs; raze mnmx)}
 
-/ scale a series into a box against an explicit lo..hi range and draw it
-.vis.plotline:{[x0;y0;pw;ph;ser;lo;hi;col]
-  ser:"f"$ser; n:count ser; if[n<2; :(::)];
+/ filter bad x/y, patch null y via fill, sort by x, downsample by x-bucket -
+/ the pure pipeline behind .vis.plotline, split out so it's smoke-testable
+/ without a window (unlike plotline itself, which calls .qvis.line)
+.vis.plotPrep:{[pw;xlo;xrg;xs;ser]
+  xs:"f"$xs; ser:"f"$ser; n:count ser; if[n<2; :(::)];
   ser:reverse fills reverse fills ser;      / patch interior/leading nulls
-  if[any null ser; :(::)];                  / all-null series: nothing to draw
-  ser:.vis.dsamp[pw;ser]; n:count ser;
-  rg:1e-9|hi-lo;
-  xs:x0+`long$(pw-1)*(til n)%n-1;
-  ys:(y0+ph-1)-`long$(ph-1)*(ser-lo)%rg;
-  .qvis.line'[-1_xs;-1_ys;1_xs;1_ys;col];}
+  ok:where not (.vis.bad xs) or .vis.bad ser;  / drop bad x, still-null/inf y -
+                                             / where turns the mask into index
+                                             / positions; indexing by the raw
+                                             / boolean itself would use its 0/1
+                                             / values as positions, not a filter
+  xs:xs ok; ser:ser ok; n:count ser;
+  if[n<2; :(::)];                           / all-null/bad series: nothing to draw
+  ix:iasc xs; xs:xs ix; ser:ser ix;         / x need not arrive pre-sorted
+  .vis.dsampxy[pw;xlo;xrg;xs;ser]}
+
+/ scale a series into a box against explicit x/y ranges and draw it; points
+/ are placed by their real x value (not row index), so unevenly spaced time
+/ series and series of different lengths land at their true position instead
+/ of all stretching to fill the same width.
+/ box=(x0;y0;pw;ph), xrng=(xlo;xhi), yrng=(lo;hi) - bundled since q lambdas
+/ cap out at 8 explicit params
+.vis.plotline:{[box;xrng;yrng;xs;ser;col]
+  x0:box 0; y0:box 1; pw:box 2; ph:box 3; xlo:xrng 0; xhi:xrng 1; lo:yrng 0; hi:yrng 1;
+  xrg:1e-9|xhi-xlo;
+  xy:.vis.plotPrep[pw;xlo;xrg;xs;ser]; if[(::)~xy; :(::)];
+  xs:xy 0; ser:xy 1;
+  px:x0+`long$(pw-1)*(xs-xlo)%xrg;
+  py:.vis.py[y0;ph;lo;1e-9|hi-lo;ser];
+  .qvis.line'[-1_px;-1_py;1_px;1_py;col];}
 
 .vis.axes:{[x0;y0;pw;ph;lo;hi]
   .qvis.line[x0;y0;x0;y0+ph;.vis.BORD]; .qvis.line[x0;y0+ph;x0+pw;y0+ph;.vis.BORD];
   .vis.tick[x0;y0;pw;ph;lo;hi] each tks where (tks:.vis.nice[lo;hi;4]) within (lo;hi);}
 .vis.tick:{[x0;y0;pw;ph;lo;hi;v]
-  y:(y0+ph-1)-`long$(ph-1)*(v-lo)%1e-9|hi-lo;
+  y:.vis.py[y0;ph;lo;1e-9|hi-lo;v];
   .qvis.line[x0+1;y;x0+pw;y;.vis.GRID];
-  .qvis.text[2;y-3;1;.qvis.gray;8 sublist .vis.fmtnum v];}
+  .qvis.text[x0-.vis.YLGUT;y-3;1;.qvis.gray;8 sublist .vis.fmtnum v];}
 
 .vis.plot:{[x]
   $[.Q.qt x; .vis.plotTbl x;
     0h=type x;
       .vis.open .vis.plotView[{"s",string x} each 1+til count x;"f"$'x;
-        " ";0f;"f"$-1+max count each x];
-    .vis.open .vis.plotView[enlist "y";enlist "f"$x;" ";0f;"f"$-1+count x]]}
+        {"f"$til count x} each x;" ";0f;"f"$-1+max count each x];
+    .vis.open .vis.plotView[enlist "y";enlist "f"$x;enlist "f"$til count x;
+      " ";0f;"f"$-1+count x]]}
 
 / plot state from a table: numeric columns are series, the first temporal
-/ column (if any) supplies the x-axis range and tick format
+/ column (if any) supplies both the x-axis range and each series' real x
+/ position (so irregular time spacing renders correctly, not index-uniform)
 .vis.plotState:{[t]
   if[count keys t; t:0!t]; mt:0!meta t;
   xi:first where (mt`t) in "pmdznuvt";
   yc:(mt`c) where (mt`t) in "hijfe";
   if[not count yc; '`$"no numeric columns"];
-  xt:" "; xlo:0f; xhi:"f"$0|-1+count t;
+  xt:" "; xlo:0f; xhi:"f"$0|-1+count t; xc:"f"$til count t;
   / min/max, not first/last - the time column need not be sorted
-  if[not null xi; xc:t (mt`c) xi; xt:(mt`t) xi; xlo:"f"$min xc; xhi:"f"$max xc];
-  `nms`ys`xt`xlo`xhi!(string each yc;{[t;c]"f"$t c}[t] each yc;xt;xlo;xhi)}
+  if[not null xi;
+    xc:"f"$t (mt`c) xi; xt:(mt`t) xi;
+    xcf:.vis.finite xc; xlo:$[count xcf;min xcf;0f]; xhi:$[count xcf;max xcf;1f]];
+  `nms`ys`xss`xt`xlo`xhi!
+    (string each yc;{[t;c]"f"$t c}[t] each yc;count[yc]#enlist xc;xt;xlo;xhi)}
 
 .vis.plotTbl:{[t] .vis.open `name`draw`state!(`plot;.vis.plotDraw;.vis.plotState t)}
 
-/ nms/ys = series names and vectors; xt/xlo/xhi = x type char (" " = ordinal
-/ index) and range, used only for the tick grid - see .vis.xticks
-.vis.plotView:{[nms;ys;xt;xlo;xhi]
-  `name`draw`state!(`plot;.vis.plotDraw;`nms`ys`xt`xlo`xhi!(nms;ys;xt;xlo;xhi))}
+/ nms/ys = series names and vectors; xss = parallel x-value vectors (one per
+/ series - real x placement, not row index); xt/xlo/xhi = x type char (" " =
+/ ordinal index) and range, used only for the tick grid - see .vis.xticks
+.vis.plotView:{[nms;ys;xss;xt;xlo;xhi]
+  `name`draw`state!(`plot;.vis.plotDraw;`nms`ys`xss`xt`xlo`xhi!(nms;ys;xss;xt;xlo;xhi))}
 
 .vis.plotDraw:{[ev]
-  st:.vis.st[]; ys:st`ys; nms:st`nms;
-  x0:56; y0:24; pw:.vis.W-72; ph:.vis.H-60;
-  allv:raze ys; allv:allv where not null allv;
+  st:.vis.st[]; ys:st`ys; nms:st`nms; xss:st`xss;
+  bx:.vis.boxOr[st;.vis.BOX]; x0:bx 0; y0:bx 1; pw:bx 2; ph:bx 3;
+  allv:.vis.finite raze ys;
   if[not count allv; .qvis.text[x0;y0;1;.qvis.red;"no data"]; :(::)];
   lo:min allv; hi:max allv; if[lo=hi; hi:lo+1f];
   .vis.axes[x0;y0;pw;ph;lo;hi];
   .vis.xticks[x0;y0;pw;ph;st`xt;st`xlo;st`xhi];
-  .vis.plotline[x0;y0;pw;ph;;lo;hi;]'[ys;.vis.PAL til[count ys] mod count .vis.PAL];
-  {[i;nm;c] .qvis.text[.vis.W-160;24+10*i;1;c;16 sublist nm]}
-    '[til count nms;nms;.vis.PAL til[count nms] mod count .vis.PAL];}
+  .vis.plotline[(x0;y0;pw;ph);(st`xlo;st`xhi);(lo;hi)]'
+    [xss;ys;.vis.PAL til[count ys] mod count .vis.PAL];
+  {[x0;pw;y0;i;nm;c] .qvis.text[x0+pw-144;y0+10*i;1;c;16 sublist nm]}[x0;pw;y0]
+    '[til count nms;nms;.vis.PAL til[count nms] mod count .vis.PAL];
+  / crosshair + nearest-point readout per series while hovering the plot area
+  mx:ev`mx; my:ev`my;
+  if[(mx within (x0;x0+pw-1)) and my within (y0;y0+ph-1);
+    .qvis.line[mx;y0;mx;y0+ph-1;.vis.BORD];
+    xv:st[`xlo]+(st[`xhi]-st`xlo)*(mx-x0)%pw-1;
+    tx:(x0+pw-90)&mx+6;
+    .qvis.text[tx;y0+2;1;.qvis.gray;.vis.fmtx[st`xt;st`xlo;st`xhi;xv]];
+    {[tx;y0;xv;i;nm;xs;ser;c]
+      if[count xs; j:.vis.nearest["f"$xs;xv];
+        .qvis.text[tx;y0+12+10*i;1;c;nm,": ",.vis.fmtnum ser j]]
+      }[tx;y0;xv]'[til count nms;nms;xss;ys;.vis.PAL til[count nms] mod count .vis.PAL]];}
 
-.vis.hist:{[x;bins]
-  x:"f"$x; x:x where not null x;
+/ bin a numeric vector into `mn`rg`c (min, range, per-bin counts) - shared by
+/ the standalone .vis.hist and the watch/dash `hist kind (.vis.histState)
+.vis.histBin:{[x;bins]
+  x:.vis.finite "f"$x;
   if[not count x; '`$"no data"];
   mn:min x; rg:1e-9|max[x]-mn;
   c:@[bins#0;`long$(bins-1)&floor bins*(x-mn)%rg;+;1];
-  .vis.open `name`draw`state!(`hist;.vis.histDraw;`mn`rg`c!(mn;rg;c))}
+  `mn`rg`c!(mn;rg;c)}
+
+.vis.hist:{[x;bins] .vis.open `name`draw`state!(`hist;.vis.histDraw;.vis.histBin[x;bins])}
+
+/ hist/bar as watch/dash kinds: state builder takes the fetched table and
+/ picks columns automatically (first numeric column; first symbol/string
+/ column as labels, for bar)
+.vis.HISTBINS:40;
+.vis.histState:{[t]
+  if[count keys t; t:0!t]; mt:0!meta t;
+  yc:first (mt`c) where (mt`t) in "hijfe";
+  if[null yc; '`$"no numeric columns"];
+  .vis.histBin["f"$t yc;.vis.HISTBINS]}
 
 .vis.histDraw:{[ev]
   st:.vis.st[]; c:st`c; bins:count c;
-  x0:56; y0:24; pw:.vis.W-72; ph:.vis.H-60;
+  bx:.vis.boxOr[st;.vis.BOX]; x0:bx 0; y0:bx 1; pw:bx 2; ph:bx 3;
   .vis.axes[x0;y0;pw;ph;0f;"f"$mx:1|max c];
   .vis.hbar[x0;y0;ph;1|pw div bins;mx]'[til bins;c];
   .qvis.text[x0;y0+ph+4;1;.qvis.gray;.vis.fmtnum st`mn];
@@ -607,19 +698,20 @@ if[()~@[key;`.qvis;()];
   .qvis.rect[x0+1+i*bw;(y0+ph-1)-h;1|bw-1;h;.qvis.cyan];}
 
 .vis.scatter:{[xx;yy]
+  xt:.Q.t abs type xx;
   xx:"f"$xx; yy:"f"$yy;
-  ok:where not (null xx) or null yy;
+  ok:where not (.vis.bad xx) or .vis.bad yy;
   xx:xx ok; yy:yy ok;
   if[not count xx; '`$"no data"];
-  .vis.open `name`draw`state!(`scatter;.vis.scatDraw;`xx`yy!(xx;yy))}
+  .vis.open `name`draw`state!(`scatter;.vis.scatDraw;`xx`yy`xt!(xx;yy;xt))}
 
 .vis.scatDraw:{[ev]
-  st:.vis.st[]; xx:st`xx; yy:st`yy;
-  x0:56; y0:24; pw:.vis.W-72; ph:.vis.H-60;
+  st:.vis.st[]; xx:st`xx; yy:st`yy; xt:st`xt;
+  bx:.vis.boxOr[st;.vis.BOX]; x0:bx 0; y0:bx 1; pw:bx 2; ph:bx 3;
   ylo:min yy; yhi:max yy; if[ylo=yhi; yhi:ylo+1f];
   xlo:min xx; xhi:max xx; if[xlo=xhi; xhi:xlo+1f];
   .vis.axes[x0;y0;pw;ph;ylo;yhi];
-  .vis.xticks[x0;y0;pw;ph;" ";xlo;xhi];
+  .vis.xticks[x0;y0;pw;ph;xt;xlo;xhi];
   .qvis.rect'[x0+1+`long$(pw-4)*(xx-xlo)%xhi-xlo;
         (y0+ph-3)-`long$(ph-4)*(yy-ylo)%yhi-ylo;2;2;.qvis.cyan];
   / crosshair + data-space readout while the mouse is over the plot area
@@ -628,7 +720,7 @@ if[()~@[key;`.qvis;()];
     .qvis.line[mx;y0;mx;y0+ph-1;.vis.BORD];
     .qvis.line[x0;my;x0+pw-1;my;.vis.BORD];
     xv:xlo+(xhi-xlo)*(mx-x0)%pw-1; yv:ylo+(yhi-ylo)*((y0+ph-1)-my)%ph-1;
-    s:(.vis.fmtnum xv),", ",.vis.fmtnum yv;
+    s:(.vis.fmtx[xt;xlo;xhi;xv]),", ",.vis.fmtnum yv;
     .qvis.text[0|(x0+pw-6*count s)&mx+6;(y0+2)|my-10;1;.qvis.gray;s]];}
 
 / ---------------------------------------------------------------------------
@@ -647,21 +739,25 @@ if[()~@[key;`.qvis;()];
   mt:0!meta t;
   xi:first where (mt`t) in "pmdznuvt";
   xt:" "; xlo:0f; xhi:"f"$0|-1+count t;
-  if[not null xi; xc:t (mt`c) xi; xt:(mt`t) xi; xlo:"f"$min xc; xhi:"f"$max xc];
+  if[not null xi;
+    xc:.vis.finite "f"$t (mt`c) xi; xt:(mt`t) xi;
+    xlo:$[count xc;min xc;0f]; xhi:$[count xc;max xc;1f]];
   `o`h`l`c`xt`xlo`xhi!("f"$t`open;"f"$t`high;"f"$t`low;"f"$t`close;xt;xlo;xhi)}
 
 .vis.candle:{[t] .vis.open `name`draw`state!(`candle;.vis.candleDraw;.vis.candleState t)}
 
 .vis.candleDraw:{[ev]
   st:.vis.st[];
-  x0:56; y0:24; pw:.vis.W-72; ph:.vis.H-60;
+  bx:.vis.boxOr[st;.vis.BOX]; x0:bx 0; y0:bx 1; pw:bx 2; ph:bx 3;
   ohlc:.vis.obucket[pw div 5;st`o;st`h;st`l;st`c];
   n:count first ohlc;
-  if[0=n; .qvis.text[x0;y0;1;.qvis.red;"no data"]; :(::)];
-  lo:min ohlc 2; hi:max ohlc 1; if[lo=hi; hi:lo+1f];
+  lo2:.vis.finite ohlc 2; hi2:.vis.finite ohlc 1;
+  if[(0=n) or (not count lo2) or not count hi2;
+    .qvis.text[x0;y0;1;.qvis.red;"no data"]; :(::)];
+  lo:min lo2; hi:max hi2; if[lo=hi; hi:lo+1f];
   .vis.axes[x0;y0;pw;ph;lo;hi];
   .vis.xticks[x0;y0;pw;ph;st`xt;st`xlo;st`xhi];
-  py:{[y0;ph;lo;rg;v] (y0+ph-1)-`long$(ph-1)*(v-lo)%rg}[y0;ph;lo;1e-9|hi-lo];
+  py:.vis.py[y0;ph;lo;1e-9|hi-lo];
   .vis.candle1[x0;pw div n;py]'[til n;ohlc 0;ohlc 1;ohlc 2;ohlc 3];}
 .vis.candle1:{[x0;bw;py;i;o;h;l;c]
   col:$[c>=o;.qvis.green;.qvis.red];
@@ -679,18 +775,121 @@ if[()~@[key;`.qvis;()];
   lbl:{$[10h=abs type x;(),x;string x]} each x;
   .vis.open `name`draw`state!(`bar;.vis.barDraw;`lbl`v!(lbl;y))}
 
+.vis.barState:{[t]
+  if[count keys t; t:0!t]; mt:0!meta t;
+  yc:first (mt`c) where (mt`t) in "hijfe";
+  if[null yc; '`$"no numeric columns"];
+  li:first where (mt`t) in "sC";
+  lbl:$[null li; string til count t;
+    {$[10h=abs type x;(),x;string x]} each t (mt`c) li];
+  `lbl`v!(lbl;"f"$t yc)}
+
 .vis.barDraw:{[ev]
   st:.vis.st[]; v:st`v; n:count v;
-  x0:56; y0:24; pw:.vis.W-72; ph:.vis.H-60;
-  lo:min 0f,v; hi:max 0f,v; if[lo=hi; hi:lo+1f];
+  bx:.vis.boxOr[st;.vis.BOX]; x0:bx 0; y0:bx 1; pw:bx 2; ph:bx 3;
+  lo:min 0f,.vis.finite v; hi:max 0f,.vis.finite v; if[lo=hi; hi:lo+1f];
   .vis.axes[x0;y0;pw;ph;lo;hi];
-  py:{[y0;ph;lo;rg;x] (y0+ph-1)-`long$(ph-1)*(x-lo)%rg}[y0;ph;lo;1e-9|hi-lo];
+  py:.vis.py[y0;ph;lo;1e-9|hi-lo];
   .vis.bar1[st;py;x0;1|pw div n;y0+ph]'[til n;v];}
 .vis.bar1:{[st;py;x0;bw;yl;i;x]
   yv:py x; yz:py 0f;
   .qvis.rect[x0+1+i*bw;yv&yz;1|bw-2;1|1+abs yv-yz;$[x<0;.qvis.red;.qvis.cyan]];
   s:(bw div 6) sublist st[`lbl] i;
   if[count s; .qvis.text[x0+1+i*bw;yl+4;1;.qvis.gray;s]];}
+
+/ ---------------------------------------------------------------------------
+/ Dashboard - .vis.dash panels tiles several live views into one window.
+/ panels is a list of (kind;src;cell) or (kind;src;cell;ms) tuples:
+/   kind - one of .vis.WKIND (`plot`candle`tab`hist`bar)
+/   src  - anything .vis.wfetch accepts: a table name, a nullary function
+/          (called each refresh - a poor man's feed), or a table value
+/   cell - (col;row;colspan;rowspan) on a grid sized to fit every panel
+/   ms   - refresh interval in ms (default 1000)
+/ Panels are display-only - click (or right-click) one to zoom into a full
+/ live .vis.watchAs view of it, with all the usual interactivity (sort,
+/ filter, command bar); esc returns to the dashboard grid. Example:
+/   .vis.dash ((`plot;`sensors;0 0 2 1);
+/     (`candle;{select from daily where sym=`AAPL};0 1 1 1);
+/     (`tab;`trade;1 1 1 1;500))
+/ only the top of the view stack ever redraws, so if one panel's src
+/ advances a feed and others merely read the result, those readers go
+/ static the instant you zoom into any panel but the driver - give every
+/ panel that should look live its own src that advances things itself
+/ (see examples/exampleDashboard.q)
+/ ---------------------------------------------------------------------------
+.vis.dash:{[panels] .vis.open .vis.dashView panels}
+
+.vis.dashNorm:{[spec] {$[4=count x;x;x,1000]} each spec}  / default ms=1000
+
+.vis.GUT:4; .vis.DTITLE:12;                  / panel gutter / title-strip height
+.vis.dashArea:{[] (4;16;.vis.W-8;.vis.H-41)}  / content area below crumbs, above cmd bar
+
+/ pixel `outer`box rect per panel from its (col;row;colspan;rowspan) cell -
+/ outer is the bordered tile, box is what's left for the kind's own draw fn
+/ after the title strip; pure, so testable without a window
+.vis.dashBoxes:{[spec]
+  panels:.vis.dashNorm spec; cells:panels[;2];
+  ncols:max {x[0]+x[2]} each cells; nrows:max {x[1]+x[3]} each cells;
+  ar:.vis.dashArea[]; x0:ar 0; y0:ar 1; aw:ar 2; ah:ar 3;
+  cw:aw div ncols; ch:ah div nrows;
+  {[x0;y0;cw;ch;cell]
+    ox:x0+cell[0]*cw; oy:y0+cell[1]*ch; ow:cell[2]*cw-.vis.GUT; oh:cell[3]*ch-.vis.GUT;
+    / box.x0 reserves .vis.YLGUT on its left so a chart's y-axis labels land
+    / inside this panel's own tile instead of bleeding into its left neighbour
+    `outer`box!((ox;oy;ow;oh);(ox+.vis.YLGUT;oy+.vis.DTITLE;ow-.vis.YLGUT-2;oh-.vis.DTITLE-4))
+  }[x0;y0;cw;ch] each cells}
+
+/ build (or rebuild) one panel's kind-state; errors are trapped and returned
+/ as a symbol atom `$"'msg" instead of the usual dict, so a bad panel shows
+/ red text instead of taking the whole dashboard down
+.vis.dashBuild:{[k;src]
+  @[{[a] .vis.WKIND[a 0][0] .vis.wfetch a 1};(k;src);{`$"'",x}]}
+
+.vis.dashInit:{[k;src;ms;box;outer]
+  vst:.vis.dashBuild[k;src];
+  if[99h=type vst; vst[`box]:box];
+  `kind`src`ms`lp`box`outer`vst!(k;src;ms;.z.P;box;outer;vst)}
+
+/ per-panel refresh: rebuild the kind-state once ms has elapsed (same cadence
+/ rule as .vis.watchDraw), otherwise pass the panel through unchanged
+.vis.dashTick:{[pnl]
+  if[(pnl`ms)>("j"$.z.P-pnl`lp)%1e6; :pnl];
+  vst:.vis.dashBuild[pnl`kind;pnl`src];
+  if[99h=type vst; vst[`box]:pnl`box];
+  pnl[`vst]:vst; pnl[`lp]:.z.P; pnl}
+
+/ draw one panel's border+title, then its kind's own draw fn pointed at the
+/ panel's state via .vis.STO; click or right-click anywhere on the panel
+/ zooms into a full live view of it (shadowing the kind's own hotspots, which
+/ are registered first and so lose the "last wins" hit-test in .vis.hit)
+.vis.dashPanelDraw:{[ev;pnl]
+  ob:pnl`outer; ox:ob 0; oy:ob 1; ow:ob 2; oh:ob 3;
+  .qvis.line[ox;oy;ox+ow;oy;.vis.BORD]; .qvis.line[ox;oy+oh;ox+ow;oy+oh;.vis.BORD];
+  .qvis.line[ox;oy;ox;oy+oh;.vis.BORD]; .qvis.line[ox+ow;oy;ox+ow;oy+oh;.vis.BORD];
+  .qvis.text[ox+3;oy+2;1;.qvis.gray;string pnl`kind];
+  vst:pnl`vst;
+  $[99h<>type vst;
+    .qvis.text[ox+3;oy+16;1;.qvis.red;(1|(ow-6) div 6) sublist string vst];
+    [.vis.STO:vst;
+     @[.vis.WKIND[pnl`kind][1];ev;{[e] -1"[qVis] dash panel error: ",e}];
+     pnl[`vst]:.vis.STO; .vis.STO:(::)]];
+  act:{[src;ms;k;e] .vis.push .vis.watchView[src;ms;k]}[pnl`src;pnl`ms;pnl`kind];
+  .vis.spot[ox;oy;ow;oh;act]; .vis.spotR[ox;oy;ow;oh;act];
+  pnl}
+
+.vis.dashView:{[spec]
+  panels:.vis.dashNorm spec; bx:.vis.dashBoxes spec;
+  pnls:{[k;src;ms;b] .vis.dashInit[k;src;ms;b`box;b`outer]}
+    '[panels[;0];panels[;1];panels[;3];bx];
+  `name`draw`state!(`dash;.vis.dashDraw;`spec`pnls`refresh!(spec;pnls;(.vis.dashView;spec)))}
+
+.vis.dashDraw:{[ev]
+  pnls:(.vis.st[])`pnls;
+  pev:ev; pev[`new]:0#`; pev[`held]:0#`; pev[`click]:0b; pev[`rclick]:0b;
+  pev[`wheel]:0; pev[`text]:"";             / panels get mx/my only - no keys/clicks/wheel
+  pnls:.vis.dashTick each pnls;
+  pnls:.vis.dashPanelDraw[pev]'[pnls];
+  .vis.put[`pnls;pnls];}
 
 / ---------------------------------------------------------------------------
 / Watch - live-updating views: .vis.watch[`trade;1000] replots the newest
@@ -702,6 +901,8 @@ if[()~@[key;`.qvis;()];
 .vis.WROWS:10000;                           / tail rows fetched per refresh
 .vis.wfetch:{[t]
   v:$[-11h=type t; get t; 100h<=type t; t[]; t];
+  if[count keys v; v:0!v];                 / keyed result (e.g. select ... by sym) - row
+                                             / position indexing below needs it unkeyed
   n:count v; i:(n-m)+til m:.vis.WROWS&n;
   $[1b~.Q.qp v; .Q.ind[v;i]; v i]}
 
@@ -713,17 +914,24 @@ if[()~@[key;`.qvis;()];
   st}
 
 / kind -> (state builder applied to the fetched tail; draw fn)
-.vis.WKIND:`plot`candle`tab!(
+/ kind -> (state builder; draw fn) - shared by .vis.watch and .vis.dash
+.vis.WKIND:`plot`candle`tab`hist`bar!(
   (.vis.plotState;.vis.plotDraw);
   (.vis.candleState;.vis.candleDraw);
-  (.vis.tailState;.vis.tabDraw));
+  (.vis.tailState;.vis.tabDraw);
+  (.vis.histState;.vis.histDraw);
+  (.vis.barState;.vis.barDraw));
 
-.vis.watch:{[t;ms] .vis.watchAs[t;ms;`plot]}
-.vis.watchAs:{[t;ms;k]
+/ view dict for a live watch, without opening it - .vis.watchAs opens this;
+/ a dashboard panel pushes the same thing when clicked to zoom in
+.vis.watchView:{[t;ms;k]
   if[not k in key .vis.WKIND;
     '`$"watch: kind must be one of ",", " sv string key .vis.WKIND];
-  .vis.open `name`draw`state!(`$"watch-",string k;.vis.watchDraw;
+  `name`draw`state!(`$"watch-",string k;.vis.watchDraw;
     (.vis.WKIND[k][0] .vis.wfetch t),`wt`ms`lp`wk!(t;ms;.z.P;k))}
+
+.vis.watch:{[t;ms] .vis.watchAs[t;ms;`plot]}
+.vis.watchAs:{[t;ms;k] .vis.open .vis.watchView[t;ms;k]}
 
 / every frame: re-fetch + rebuild the kind's state once ms have elapsed,
 / then hand the frame to the kind's draw fn as if it were a plain view
@@ -793,7 +1001,8 @@ if[()~@[key;`.qvis;()];
     .qvis.rect[130;y;600&`long$600*(w k)%mx;8;$[k=`used;.qvis.green;k=`heap;.qvis.cyan;.qvis.gray]];
   }[w;mx]'[til 5;`used`heap`peak`mmap`syms];
   .qvis.text[8;110;1;.qvis.gray;"used history"];
-  .vis.plotline[8;122;.vis.W-20;.vis.H-172;"f"$h;0f;"f"$1|max h;.qvis.green];
+  .vis.plotline[(8;122;.vis.W-20;.vis.H-172);(0f;"f"$1|max[count h]-1);
+    (0f;"f"$1|max h);"f"$til count h;"f"$h;.qvis.green];
   .qvis.text[8;.vis.H-35;1;.qvis.gray;"esc back"];}
 
 / ---------------------------------------------------------------------------

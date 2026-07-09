@@ -38,7 +38,7 @@ A sample of what you can build on the `qVis` engine:
 
 | Program | Description | Preview |
 | :--- | :--- | :--- |
-| **Interactive Dashboard**<br>[examples/exampleDashboard.q](examples/exampleDashboard.q) | Real-time streaming financial chart with interactive mouse tracking and custom indicators. | ![Interactive Dashboard](gifs/DashDemo.gif) |
+| **Interactive Dashboard**<br>[examples/exampleDashboardRaw.q](examples/exampleDashboardRaw.q) | Real-time streaming financial chart with interactive mouse tracking and custom indicators. See [examples/exampleDashboard.q](examples/exampleDashboard.q) for the same idea built on `inspect.q`'s `.vis.dash`. | ![Interactive Dashboard](gifs/DashDemo.gif) |
 | **Doom-Style Raycaster**<br>[examples/exampleDoom.q](examples/exampleDoom.q) | Wolfenstein-3D style 3D maze rendering with textures, collision detection, and movement. | ![Doom Style](gifs/DoomDemo.gif) |
 | **Interactive Ray Tracer**<br>[examples/exampleRay.q](examples/exampleRay.q) | CPU ray tracer with shadows, sphere intersections, light sources, and camera rotation. | ![Ray Tracer](gifs/RayDemo.gif) |
 | **Mandelbrot Explorer**<br>[examples/exampleMandelbrot.q](examples/exampleMandelbrot.q) | Fractal explorer with WASD panning and dynamic zoom (R/F). | ![Mandelbrot](gifs/MandelDemo.gif) |
@@ -120,7 +120,9 @@ Then call any inspector function:
 .vis.candle[daily]            / OHLC candlestick (open/high/low/close columns)
 .vis.bar[`a`b`c; 1 5 3]       / bar chart with labels
 .vis.watch[`trade; 1000]      / live plot of the table tail, refreshed every 1s
-.vis.watchAs[`trade; 500; `tab]  / live view kinds: `plot, `candle or `tab
+.vis.watchAs[`trade; 500; `tab]  / live view kinds: `plot, `candle, `tab, `hist or `bar
+.vis.dash ((`plot;`sensors;0 0 2 1); (`candle;{select from daily where sym=`AAPL};0 1 1 1); (`tab;`trade;1 1 1 1;500))
+                               / tile several live views into one window
 .vis.repl[]                   / open the multiline q editor
 ```
 
@@ -143,13 +145,27 @@ Shows every table in the loaded HDB with a bar chart of row counts across partit
 Plots `.Q.w[]` fields (used, heap, peak, mmap, syms) as horizontal bars with a scrolling history graph of `used` over the last ~300 frames. Useful for watching memory grow during a query or after loading data.
 
 ### Charts
-- **`.vis.plot[x]`** - line chart. Accepts a numeric vector (single line), a list of vectors (one line per element), or a table (numeric columns become lines, a time or date column becomes the x-axis with tick marks at round time intervals).
+- **`.vis.plot[x]`** - line chart. Accepts a numeric vector (single line), a list of vectors (one line per element), or a table (numeric columns become lines, a time or date column becomes the x-axis). Points are placed by their real x value, not row position - irregularly spaced time series and series of different lengths land where they actually belong instead of stretching to fill the width. Infinite values are dropped from the axis range so a stray `1%0` doesn't take down the view.
 - **`.vis.hist[x; n]`** - histogram with `n` buckets.
-- **`.vis.scatter[x; y]`** - 2D scatter plot with x-axis ticks and a hover crosshair readout; null values are dropped.
+- **`.vis.scatter[x; y]`** - 2D scatter plot with x-axis ticks and a hover crosshair readout; nulls and infinities are dropped. `x` can be a temporal vector - ticks and the crosshair readout format it accordingly.
 - **`.vis.candle[t]`** - OHLC candlestick chart of a table with `open`/`high`/`low`/`close` columns; more candles than fit the window are bucketed (first/max/min/last) so the shape survives.
 - **`.vis.bar[x; y]`** - bar chart of `y` values labelled by `x`; bars grow from a zero baseline so negative values hang below it.
 - **`.vis.watch[t; ms]`** - live plot: re-fetches the newest `.vis.WROWS` rows of `t` (a table name or a nullary function returning a table) every `ms` milliseconds.
-- **`.vis.watchAs[t; ms; kind]`** - same refresh loop, any view: `` `plot `` (what `.vis.watch` uses), `` `candle `` for a live candlestick, or `` `tab `` for a follow-the-tail table browser (a graphical `tail -f`).
+- **`.vis.watchAs[t; ms; kind]`** - same refresh loop, any view: `` `plot `` (what `.vis.watch` uses), `` `candle ``, `` `tab `` for a follow-the-tail table browser (a graphical `tail -f`), `` `hist `` (bins the first numeric column), or `` `bar `` (first symbol/string column as labels, first numeric column as values).
+
+### Dashboards (`.vis.dash`)
+Tiles several live views into one window on a grid:
+
+```q
+.vis.dash (
+  (`plot;   `sensors;                                     0 0 2 1);
+  (`candle; {select from daily where sym=`AAPL};          0 1 1 1);
+  (`tab;    `trade;                                       1 1 1 1; 500))
+```
+
+Each panel is `(kind; src; cell)` or `(kind; src; cell; ms)` (default 1000ms): `kind` is any `.vis.watchAs` kind, `src` is anything `.vis.watch` accepts (table name, nullary function, or a value), and `cell` is `(col; row; colspan; rowspan)` on a grid sized to fit every panel. Panels are display-only - click or right-click one to zoom into a full live `.vis.watchAs` view of it, with all the usual interactivity (sort, filter, command bar); `Esc` returns to the grid. See `examples/exampleDashboard.q` for a complete streaming example.
+
+**Pitfall - only the top of the stack redraws.** If one panel's `src` is a function that advances a feed (appends rows, mutates a global) and other panels merely *read* the resulting table, the readers only look live while the driving panel is also visible - the moment you zoom into a reader panel, the driver stops being called and its data freezes. Give every panel that needs to look live its own `src` that advances things itself (harmless to call the same feed function from multiple panels - each call just appends), or accept that reference panels showing already-static data (a historical table, a fixed aggregate) simply won't animate, which is fine when that's the intent.
 
 ### q REPL (`.vis.repl`)
 A multiline q editor with syntax highlighting. The buffer persists across open and close.
@@ -227,6 +243,7 @@ The dataset includes:
   demo 14  live watch - tail of trade, 1s refresh     .vis.watch[`trade;1000]
   demo 15  LIVE candlestick - random-walk feed        .vis.watchAs[.demo.feed;250;`candle]
   demo 16  LIVE table tail - graphical tail -f        .vis.watchAs[.demo.feed;250;`tab]
+  demo 17  dashboard - plot/candle/bar/tab tiled      .vis.dash (...)
 ```
 
 The database is only built when `db/` is absent. Run `rm -rf db` and rerun `demo.q` to regenerate it.
@@ -266,7 +283,8 @@ Standalone programs demonstrating different aspects of the engine:
 | `exampleAnimation.q` | Sine-wave plasma generator pushed to the screen via `setpixels`. |
 | `exampleBoids.q` | Craig Reynolds' Boids flocking algorithm (separation, alignment, cohesion) in vectorised q. |
 | `exampleBounce.q` | Gravity and velocity integration using basic drawing primitives. |
-| `exampleDashboard.q` | Streaming financial chart with order book, rolling averages, volume bars, and crosshair tracking. |
+| `exampleDashboard.q` | The same streaming market-data dashboard as `exampleDashboardRaw.q`, built with `inspect.q`'s `.vis.dash` in about a tenth of the code. |
+| `exampleDashboardRaw.q` | Streaming multi-symbol market-data dashboard: price chart, volume bars, clickable symbol list and session stats, built directly on `.qvis` (no `inspect.q`). |
 | `exampleDoom.q` | Standalone raycasting maze (same core engine as `game/fps.q`). |
 | `exampleFinance.q` | Live-streaming limit order book and trade price charts. |
 | `exampleLife.q` | Conway's Game of Life on a high-resolution grid, fully vectorised. |
@@ -324,7 +342,8 @@ q examples/exampleDashboard.q
 | `.vis.candle` | `[t]` | OHLC candlestick chart of a table with `open`/`high`/`low`/`close` columns. |
 | `.vis.bar` | `[x; y]` | Bar chart of `y` values labelled by `x`, drawn from a zero baseline. |
 | `.vis.watch` | `[t; ms]` | Live plot of the newest `.vis.WROWS` rows of `t` (table name or nullary function), re-fetched every `ms` milliseconds. |
-| `.vis.watchAs` | `[t; ms; kind]` | Live view of any kind: `` `plot ``, `` `candle ``, or `` `tab `` (follow-the-tail table browser). |
+| `.vis.watchAs` | `[t; ms; kind]` | Live view of any kind: `` `plot ``, `` `candle ``, `` `tab `` (follow-the-tail table browser), `` `hist ``, or `` `bar ``. |
+| `.vis.dash` | `[panels]` | Tiles several live views (any `.vis.watchAs` kind) into one window on a grid; click a panel to zoom into a full live view of it. |
 
 ---
 
