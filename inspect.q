@@ -41,22 +41,25 @@ if[()~@[key;`.qvis;()];
 / ---------------------------------------------------------------------------
 / Constants and state
 / ---------------------------------------------------------------------------
-.vis.W:850; .vis.H:450; .vis.SC:2;
-.vis.BOX:(56;24;.vis.W-72;.vis.H-60);       / default chart plot area (x0;y0;pw;ph)
-.vis.TBOX:(8;18;.vis.W-16;.vis.H-53);       / default table-browser box
+.vis.screen:.qvis.displaysize[];
+.vis.SC:2;
+.vis.W:`int$(0.8*.vis.screen`w) div .vis.SC; /width is 80% of screen size
+.vis.H:`int$(0.8*.vis.screen`h) div .vis.SC; /height is 80% of screen size
+.vis.BOX:(56;24;.vis.W-72;.vis.H-60);        / default chart plot area (x0;y0;pw;ph)
+.vis.TBOX:(8;18;.vis.W-16;.vis.H-53);        / default table-browser box
 .vis.boxOr:{[st;dflt] $[`box in key st; st`box; dflt]}  / dashboard panels override this
-.vis.YLGUT:54;                              / gap reserved left of x0 for y-axis tick labels
+.vis.YLGUT:54;                               / gap reserved left of x0 for y-axis tick labels
                                              / (56-2 in the default BOX above) - qSDL has no
                                              / clip rect, so a dashboard panel must reserve
                                              / this itself or its neighbour's labels bleed in
-.vis.TROWS:38;                              / visible rows in table/text views
-.vis.TXTC:130;                              / wrap width (chars) in text views
-.vis.BG:658448i; .vis.GRID:2105376i; .vis.BORD:2764856i;
-.vis.SELC:2046556i;                         / selected-line highlight (muted blue)
+.vis.TROWS:`int$(.vis.H-70) div 10;          / visible rows in table/text views
+.vis.TXTC:130;                               / wrap width (chars) in text views
+.vis.BG:658448i; .vis.GRID:2105376i; .vis.BORD:2764856i; /colors: background, grid, border
+.vis.SELC:2046556i;                          / selected-line highlight (muted blue)
 .vis.CMDKS:`left_gui`right_gui`left_ctrl`right_ctrl`left_command`right_command`left_meta`right_meta`left_windows`right_windows;
 .vis.PAL:(.qvis.cyan;.qvis.green;.qvis.yellow;.qvis.magenta;.qvis.red;.qvis.white); /our palette 
 
-.vis.STACK:();                              / view stack (drill-down)
+.vis.STACK:(); / view stack (drill-down)
 .vis.FONT_PROP:-1i;
 .vis.FONT_MONO:-1i;
 .vis.MONOW:6;
@@ -68,7 +71,7 @@ if[()~@[key;`.qvis;()];
   $[fid>=0; first .qvis.textsize[fid;str]; 6 * count str]}
 
 .vis.HOT:([] x:0#0; y:0#0; w:0#0; h:0#0; rc:0#0b; act:());  / this frame's hotspots
-.vis.OZTS:(::); .vis.OT:0;                  / saved .z.ts and \t
+.vis.OZTS:(::); .vis.OT:0;                                  / saved .z.ts and \t
 .vis.RUN:0b;
 .vis.DEBUG:0b;
 
@@ -83,8 +86,8 @@ if[()~@[key;`.qvis;()];
 .vis.open:{[v]
   if[.vis.RUN; .vis.push v; :(::)];
   .[.qvis.init;(.vis.W;.vis.H;.vis.SC);{[e]::}];  / tolerate an already-open window
-  .vis.FONT_PROP:.qvis.loadsysfont[`prop;9];
-  .vis.FONT_MONO:.qvis.loadsysfont[`mono;9];
+  .vis.FONT_PROP:.qvis.loadsysfont[`prop;8];
+  .vis.FONT_MONO:.qvis.loadsysfont[`mono;8];
   if[.vis.FONT_MONO>=0; .vis.MONOW:first .qvis.textsize[.vis.FONT_MONO;"a"]];
   .vis.OZTS:@[get;`.z.ts;{[e](::)}];
   .vis.OT:system"t";
@@ -373,7 +376,7 @@ if[()~@[key;`.qvis;()];
   while[ci<count s;
     c:colz ci; j:ci;
     while[(j<count s) and colz[j]~c; j+:1];
-    .vis.drawText[x0+.vis.MONOW*ci; y; .vis.FONT_MONO; c; s ci+til j-ci];
+    .vis.drawText[x0+.vis.textWidth[.vis.FONT_MONO; ci sublist s]; y; .vis.FONT_MONO; c; s ci+til j-ci];
     ci:j];}
 
 .vis.txtDraw:{[ev]
@@ -671,6 +674,7 @@ if[()~@[key;`.qvis;()];
   mx:ev`mx; my:ev`my;
   if[(mx within (x0;x0+pw-1)) and my within (y0;y0+ph-1);
     .qvis.line[mx;y0;mx;y0+ph-1;.vis.BORD];
+    .qvis.line[x0;my;x0+pw-1;my;.vis.BORD];
     xv:st[`xlo]+(st[`xhi]-st`xlo)*(mx-x0)%pw-1;
     tx:(x0+pw-90)&mx+6;
     .vis.drawText[tx;y0+2;.vis.FONT_PROP;.qvis.gray;.vis.fmtx[st`xt;st`xlo;st`xhi;xv]];
@@ -774,7 +778,20 @@ if[()~@[key;`.qvis;()];
   .vis.axes[x0;y0;pw;ph;lo;hi];
   .vis.xticks[x0;y0;pw;ph;st`xt;st`xlo;st`xhi];
   py:.vis.py[y0;ph;lo;1e-9|hi-lo];
-  .vis.candle1[x0;pw div n;py]'[til n;ohlc 0;ohlc 1;ohlc 2;ohlc 3];}
+  .vis.candle1[x0;pw div n;py]'[til n;ohlc 0;ohlc 1;ohlc 2;ohlc 3];
+  / crosshair + data-space readout while the mouse is over the plot area
+  mx:ev`mx; my:ev`my;
+  if[(mx within (x0;x0+pw-1)) and my within (y0;y0+ph-1);
+    .qvis.line[mx;y0;mx;y0+ph-1;.vis.BORD];
+    .qvis.line[x0;my;x0+pw-1;my;.vis.BORD];
+    xv:st[`xlo]+(st[`xhi]-st`xlo)*(mx-x0)%pw-1;
+    yv:lo+(hi-lo)*((y0+ph-1)-my)%ph-1;
+    bw:pw div n;
+    s:$[(bw>0) and (i:(mx-x0) div bw) within (0;n-1);
+      (.vis.fmtx[st`xt;st`xlo;st`xhi;xv]),"  O:",(.vis.fmtnum ohlc[0]i)," H:",(.vis.fmtnum ohlc[1]i)," L:",(.vis.fmtnum ohlc[2]i)," C:",(.vis.fmtnum ohlc[3]i);
+      (.vis.fmtx[st`xt;st`xlo;st`xhi;xv]),", ",.vis.fmtnum yv];
+    w:.vis.textWidth[.vis.FONT_PROP;s];
+    .vis.drawText[0|(x0+pw-w)&mx+6;(y0+2)|my-10;.vis.FONT_PROP;.qvis.gray;s]];}
 .vis.candle1:{[x0;bw;py;i;o;h;l;c]
   col:$[c>=o;.qvis.green;.qvis.red];
   xm:x0+(i*bw)+bw div 2;
@@ -1155,7 +1172,7 @@ if[()~@[key;`.qvis;()];
   hoff:0|.vis.CX-maxc;                      / h-scroll so the cursor stays visible
   .vis.drawText[18;.vis.H-10;.vis.FONT_MONO;.qvis.black;maxc sublist hoff _ .vis.CMD];
   if[12>.vis.CFC mod 20;
-    .qvis.rect[18+.vis.MONOW*.vis.CX-hoff;.vis.H-12;1;11;.qvis.black]];}
+    .qvis.rect[18+.vis.textWidth[.vis.FONT_MONO; (.vis.CX-hoff) sublist (hoff _ .vis.CMD)];.vis.H-12;1;11;.qvis.black]];}
 
 / ---------------------------------------------------------------------------
 / REPL - multiline q editor (top pane) + result pane (bottom).
@@ -1338,7 +1355,7 @@ if[()~@[key;`.qvis;()];
     .vis.qline[8;18+10*i;maxc sublist ho _ s]}[st;off;maxc;hoff]
     '[til count shown;shown];
   if[(cyv within (0;.vis.EDR-1)) and 12>(st`fc) mod 20;
-    .qvis.rect[7+.vis.MONOW*(st`cx)-hoff;17+10*cyv;1;9;.qvis.white]];
+    .qvis.rect[7+.vis.textWidth[.vis.FONT_MONO; ((st`cx)-hoff) sublist (hoff _ st[`lines] st`cy)];17+10*cyv;1;9;.qvis.white]];
   .qvis.line[0;edh+2;.vis.W;edh+2;.vis.BORD];
   oshown:outr sublist (st`ooff) _ st`out;
   {[y0;i;s] .vis.drawText[8;y0+10*i;.vis.FONT_MONO;

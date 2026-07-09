@@ -30,6 +30,7 @@ c_setclip:  LIB 2: (`q_setclip;  1)   // string
 c_loadfont: LIB 2: (`q_load_font; 2)  // path; pt_size -> font_id
 c_drawtext: LIB 2: (`q_draw_text; 5)  // x; y; font_id; color; string
 c_textsize: LIB 2: (`q_text_size; 2)  // font_id; string -> (width; height)
+c_displaysize:LIB 2: (`q_display_size; 1)  // :: -> (w; h)
 // ---------------------------------------------------------------------------
 // Colors - ARGB 32-bit integers (0xAARRGGBB, alpha is ignored)
 // You can also pass any int literal, e.g. 0xFF8800i for orange
@@ -149,6 +150,11 @@ clipboard: { c_clipboard[::] }
 // setclip[str]
 //   Replaces the system clipboard contents with str (char vector or atom).
 setclip: { [s] c_setclip $[-10h=type s; enlist s; s]; }
+
+// displaysize[]
+//   Returns the display size (usable bounds) of the primary monitor as a
+//   dictionary `w`h! (width; height).
+displaysize: { c_displaysize[::] }
 
 // loadfont[path; pt_size]
 //   path    - char vector path to TTF/OTF font file

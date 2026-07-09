@@ -295,7 +295,7 @@ K q_init(K w, K h, K s) {
     return krr((S) "sdl init failed");
 
   g_window = SDL_CreateWindow("qVis", g_width, g_height,
-                              SDL_WINDOW_HIGH_PIXEL_DENSITY);
+                              SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE);
   if (!g_window)
     return krr((S) "window creation failed");
 
@@ -547,8 +547,30 @@ K q_present(K unused) {
 
   SDL_UpdateTexture(g_texture, nullptr, g_pixels.data(),
                     g_width * (int)sizeof(uint32_t));
+
+  int win_w = 0, win_h = 0;
+  SDL_GetRenderOutputSize(g_renderer, &win_w, &win_h);
+
+  float canvas_aspect = (float)g_width / g_height;
+  float window_aspect = (float)win_w / win_h;
+
+  SDL_FRect dst_rect;
+  if (window_aspect > canvas_aspect) {
+    // Window is wider -> Pillarbox (bars on left/right)
+    dst_rect.h = (float)win_h;
+    dst_rect.w = (float)win_h * canvas_aspect;
+    dst_rect.x = (win_w - dst_rect.w) / 2.0f;
+    dst_rect.y = 0.0f;
+  } else {
+    // Window is taller -> Letterbox (bars on top/bottom)
+    dst_rect.w = (float)win_w;
+    dst_rect.h = (float)win_w / canvas_aspect;
+    dst_rect.x = 0.0f;
+    dst_rect.y = (win_h - dst_rect.h) / 2.0f;
+  }
+
   SDL_RenderClear(g_renderer);
-  SDL_RenderTexture(g_renderer, g_texture, nullptr, nullptr);
+  SDL_RenderTexture(g_renderer, g_texture, nullptr, &dst_rect);
   SDL_RenderPresent(g_renderer);
   // Pump OS events so macOS's compositor flushes the frame immediately.
   SDL_PumpEvents();
@@ -647,6 +669,39 @@ K q_mouse(K unused) {
   float mx, my;
   uint32_t btns = SDL_GetMouseState(&mx, &my);
 
+  int win_w = 0, win_h = 0;
+  SDL_GetWindowSize(g_window, &win_w, &win_h);
+
+  float canvas_aspect = (float)g_width / g_height;
+  float window_aspect = (float)win_w / win_h;
+
+  SDL_FRect dst_rect;
+  if (window_aspect > canvas_aspect) {
+    dst_rect.h = (float)win_h;
+    dst_rect.w = (float)win_h * canvas_aspect;
+    dst_rect.x = (win_w - dst_rect.w) / 2.0f;
+    dst_rect.y = 0.0f;
+  } else {
+    dst_rect.w = (float)win_w;
+    dst_rect.h = (float)win_w / canvas_aspect;
+    dst_rect.x = 0.0f;
+    dst_rect.y = (win_h - dst_rect.h) / 2.0f;
+  }
+
+  int logical_w = g_width / g_scale;
+  int logical_h = g_height / g_scale;
+
+  float local_x = mx - dst_rect.x;
+  float local_y = my - dst_rect.y;
+
+  int lx = (int)(local_x * logical_w / dst_rect.w);
+  int ly = (int)(local_y * logical_h / dst_rect.h);
+
+  if (lx < 0) lx = 0;
+  if (lx >= logical_w) lx = logical_w - 1;
+  if (ly < 0) ly = 0;
+  if (ly >= logical_h) ly = logical_h - 1;
+
   K keys = ktn(KS, 6);
   kS(keys)[0] = ss((S) "x");
   kS(keys)[1] = ss((S) "y");
@@ -656,8 +711,8 @@ K q_mouse(K unused) {
   kS(keys)[5] = ss((S) "c");
 
   K vals = ktn(KJ, 6);
-  kJ(vals)[0] = (J)mx / g_scale; // Scale mouse coords down to pixel grid
-  kJ(vals)[1] = (J)my / g_scale;
+  kJ(vals)[0] = (J)lx;
+  kJ(vals)[1] = (J)ly;
   kJ(vals)[2] = (btns & SDL_BUTTON_LMASK) ? 1 : 0;
   kJ(vals)[3] = (btns & SDL_BUTTON_RMASK) ? 1 : 0;
   kJ(vals)[4] = (J)lroundf(g_wheel);
@@ -794,6 +849,22 @@ K q_text_size(K font_id, K str) {
   kI(r)[0] = w / g_scale;
   kI(r)[1] = h / g_scale;
   return r;
+}
+
+K q_display_size(K unused) {
+  SDL_Init(SDL_INIT_VIDEO);
+  SDL_DisplayID primaryDisplay = SDL_GetPrimaryDisplay();
+  SDL_Rect bounds = {0, 0, 800, 600}; // fallback
+  if (primaryDisplay != 0) {
+    SDL_GetDisplayUsableBounds(primaryDisplay, &bounds);
+  }
+  K keys = ktn(KS, 2);
+  kS(keys)[0] = ss((S)"w");
+  kS(keys)[1] = ss((S)"h");
+  K vals = ktn(KI, 2);
+  kI(vals)[0] = bounds.w;
+  kI(vals)[1] = bounds.h;
+  return xD(keys, vals);
 }
 
 } // extern "C"
