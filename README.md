@@ -2,7 +2,7 @@
 
 **qVis** is a graphical engine for [kdb+/q](https://kx.com) that opens a 60fps SDL3 window directly from the q REPL. It provides immediate-mode drawing primitives (pixels, lines, rectangles, circles, text), bulk pixel blasting via `setpixels`, and edge-detected keyboard and mouse input - all without blocking the q session.
 
-On top of the engine lives **`inspect.q`**, a full visual workspace inspector. Load it into any running q process and you can immediately browse tables of any size, explore namespaces, plot charts, watch memory in real-time, and run q code in a syntax-highlighted editor - all in the same window, all while the session stays live.
+On top of the engine lives **`inspect.q`**, a full visual workspace inspector. Load it into any running q process and you can immediately browse, sort, and filter tables of any size, explore namespaces, plot line/scatter/histogram/candlestick/bar charts, watch live-updating views of a streaming table, inspect anything through right-click context menus, watch memory in real-time, and run q code in a syntax-highlighted editor - all in the same window, all while the session stays live.
 
 The repository also ships a collection of standalone graphics programs (`examples/`) and two playable games (`game/`) written entirely in q, showing what the engine can do.
 
@@ -120,6 +120,7 @@ Then call any inspector function:
 .vis.candle[daily]            / OHLC candlestick (open/high/low/close columns)
 .vis.bar[`a`b`c; 1 5 3]       / bar chart with labels
 .vis.watch[`trade; 1000]      / live plot of the table tail, refreshed every 1s
+.vis.watchAs[`trade; 500; `tab]  / live view kinds: `plot, `candle or `tab
 .vis.repl[]                   / open the multiline q editor
 ```
 
@@ -164,6 +165,7 @@ Every view (except the REPL, which has its own full editor) shows a `q)` prompt 
 
 - The result appears above the bar and the view refreshes. Changes to the session (adding or removing globals, reloading a database) are reflected immediately.
 - System commands work as in the console: `\l db`, `\t 100`, `\t`, and so on. `\\` closes the window and exits q.
+- A line starting with `/` filters the current view instead of evaluating: a where-clause on a table view (`/price>100,sym=`AAPL`), a substring name match on the namespace view (`/stats`). The matches open as a new stacked view; `Esc` clears the filter.
 - Expressions that open a view (`.vis.tab t`, `.vis.plot x`, etc.) push it onto the navigation stack. Press `Esc` to return.
 
 ### Navigation
@@ -176,6 +178,17 @@ Every view (except the REPL, which has its own full editor) shows a `q)` prompt 
 | Scroll (auto-repeats, accelerates on a long hold) | Mouse wheel or Up/Down/PageUp/PageDown |
 | Go back / close menu | Esc |
 | Quit | Window close button |
+
+### Tunables
+
+Globals you can set at any time to trade safety/speed for coverage:
+
+| Variable | Default | Meaning |
+| :--- | :--- | :--- |
+| `.vis.MAXSORT` | 50M | Max rows to sort or plot a column of (both materialise one full column; larger tables are refused with a message). |
+| `.vis.WROWS` | 10000 | Tail rows fetched per `.vis.watch` / `.vis.watchAs` refresh cycle. |
+| `.vis.SZMAX` | 1M | Namespace explorer skips the serialised-size probe (`-22!`) for values with more items than this. |
+| `.vis.TROWS` | 38 | Visible rows in table and text views. |
 
 **If the window freezes:** q pauses all timers while the session is at a debug prompt (`q))` or busy evaluating an expression. The inspector cannot repaint until control returns. Type `\` at the terminal to leave the debugger and the window resumes. This is normal q behaviour, not a hang.
 
@@ -290,7 +303,7 @@ q examples/exampleDashboard.q
 | `.qvis.textin` | `[]` | Returns characters typed since the last call as a char vector (read-and-reset). Use this rather than `keyz` to handle text input correctly. |
 | `.qvis.clipboard` | `[]` | Returns the system clipboard contents as a char vector. |
 | `.qvis.setclip` | `[str]` | Writes `str` to the system clipboard. |
-| `.qvis.poll` | `[]` | Returns a dict `new`held`click`mx`my`wheel`closed`text` with edge-detected input for the current frame. |
+| `.qvis.poll` | `[]` | Returns a dict `new`held`click`rclick`mx`my`wheel`closed`text` with edge-detected input for the current frame (`click`/`rclick` fire on the frame the left/right button goes down). |
 | `.qvis.pollReset` | `[]` | Clears edge-detection state. Call this when reopening a view. |
 | `.qvis.shutdown` | `[]` | Closes the window and releases resources. |
 
@@ -305,9 +318,13 @@ q examples/exampleDashboard.q
 | `.vis.db` | `[]` | Opens the partitioned database overview. |
 | `.vis.mem` | `[]` | Opens the live memory monitor. |
 | `.vis.repl` | `[]` | Opens the multiline q editor. |
-| `.vis.plot` | `[x]` | Line chart. Accepts a numeric vector, list of vectors, or table. |
+| `.vis.plot` | `[x]` | Line chart. Accepts a numeric vector, list of vectors, or table (a temporal column becomes the x-axis with time-aware tick marks). |
 | `.vis.hist` | `[x; n]` | Histogram of `x` with `n` buckets. |
-| `.vis.scatter` | `[x; y]` | 2D scatter plot of two numeric vectors. |
+| `.vis.scatter` | `[x; y]` | 2D scatter plot of two numeric vectors, with a hover crosshair readout. |
+| `.vis.candle` | `[t]` | OHLC candlestick chart of a table with `open`/`high`/`low`/`close` columns. |
+| `.vis.bar` | `[x; y]` | Bar chart of `y` values labelled by `x`, drawn from a zero baseline. |
+| `.vis.watch` | `[t; ms]` | Live plot of the newest `.vis.WROWS` rows of `t` (table name or nullary function), re-fetched every `ms` milliseconds. |
+| `.vis.watchAs` | `[t; ms; kind]` | Live view of any kind: `` `plot ``, `` `candle ``, or `` `tab `` (follow-the-tail table browser). |
 
 ---
 
