@@ -27,6 +27,9 @@ c_mouse:    LIB 2: (`q_mouse;    1)   // ::
 c_textin:   LIB 2: (`q_textin;   1)   // ::
 c_clipboard:LIB 2: (`q_clipboard;1)   // ::
 c_setclip:  LIB 2: (`q_setclip;  1)   // string
+c_loadfont: LIB 2: (`q_load_font; 2)  // path; pt_size -> font_id
+c_drawtext: LIB 2: (`q_draw_text; 5)  // x; y; font_id; color; string
+c_textsize: LIB 2: (`q_text_size; 2)  // font_id; string -> (width; height)
 // ---------------------------------------------------------------------------
 // Colors - ARGB 32-bit integers (0xAARRGGBB, alpha is ignored)
 // You can also pass any int literal, e.g. 0xFF8800i for orange
@@ -146,6 +149,67 @@ clipboard: { c_clipboard[::] }
 // setclip[str]
 //   Replaces the system clipboard contents with str (char vector or atom).
 setclip: { [s] c_setclip $[-10h=type s; enlist s; s]; }
+
+// loadfont[path; pt_size]
+//   path    - char vector path to TTF/OTF font file
+//   pt_size - integer font size (points)
+//   Returns an integer font id (>=0) on success.
+loadfont: { [path; pt_size] c_loadfont[$[(type path)=-10h; enlist path; path]; `int$pt_size] }
+
+// sysfonts
+//   A dictionary of proportional (`prop) and monospace (`mono) TTF font paths
+//   across different systems (macOS, Linux, Windows), ordered by preference.
+sysfonts:()!()
+sysfonts[`prop]:(
+  "/System/Library/Fonts/Supplemental/Arial.ttf";
+  "/System/Library/Fonts/Arial.ttf";
+  "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
+  "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf";
+  "/usr/share/fonts/TTF/DejaVuSans.ttf";
+  "/usr/share/fonts/liberation/LiberationSans-Regular.ttf";
+  "C:/Windows/Fonts/arial.ttf"
+  )
+sysfonts[`mono]:(
+  "/System/Library/Fonts/SFNSMono.ttf";
+  "/System/Library/Fonts/Supplemental/Courier New.ttf";
+  "/System/Library/Fonts/Courier New.ttf";
+  "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf";
+  "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf";
+  "/usr/share/fonts/TTF/DejaVuSansMono.ttf";
+  "/usr/share/fonts/liberation/LiberationMono-Regular.ttf";
+  "C:/Windows/Fonts/cour.ttf";
+  "C:/Windows/Fonts/consola.ttf"
+  )
+
+// loadsysfont[style; pt_size]
+//   style   - `prop or `mono
+//   pt_size - integer font size (points)
+//   Tries to load common system fonts for the given style until one succeeds.
+//   Returns the font id (>=0) on success, or -1i on failure.
+loadsysfont:{[style; pt_size]
+  paths:sysfonts style;
+  fid:-1i;
+  i:0;
+  while[(i<count paths) & fid<0;
+    fid:.[loadfont;(paths[i];`int$pt_size);-1i];
+    i+:1;
+    ];
+  fid
+  }
+
+// drawtext[x; y; font_id; color; str]
+//   x; y    - top-left corner coordinate of the text
+//   font_id - integer font id returned by loadfont
+//   color   - ARGB int
+//   str     - string/char vector to draw
+//   Draws text using a loaded TrueType/OpenType font.
+drawtext: { [x; y; font_id; color; str] c_drawtext[`int$x; `int$y; `int$font_id; `int$color; $[(type str)=-10h; enlist str; str]] }
+
+// textsize[font_id; str]
+//   font_id - integer font id
+//   str     - string/char vector
+//   Returns a 2-item int list (width; height) of the text bounds in pixels.
+textsize: { [font_id; str] c_textsize[`int$font_id; $[(type str)=-10h; enlist str; str]] }
 
 // ---------------------------------------------------------------------------
 // Edge-detected input - poll[] wraps keyz[]/mouse[] and diffs against the

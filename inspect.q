@@ -57,6 +57,16 @@ if[()~@[key;`.qvis;()];
 .vis.PAL:(.qvis.cyan;.qvis.green;.qvis.yellow;.qvis.magenta;.qvis.red;.qvis.white); /our palette 
 
 .vis.STACK:();                              / view stack (drill-down)
+.vis.FONT_PROP:-1i;
+.vis.FONT_MONO:-1i;
+.vis.MONOW:6;
+
+.vis.drawText:{[x;y;fid;color;str]
+  $[fid>=0; .qvis.drawtext[x;y;fid;color;str]; .qvis.text[x;y;1;color;str]]}
+
+.vis.textWidth:{[fid;str]
+  $[fid>=0; first .qvis.textsize[fid;str]; 6 * count str]}
+
 .vis.HOT:([] x:0#0; y:0#0; w:0#0; h:0#0; rc:0#0b; act:());  / this frame's hotspots
 .vis.OZTS:(::); .vis.OT:0;                  / saved .z.ts and \t
 .vis.RUN:0b;
@@ -73,6 +83,9 @@ if[()~@[key;`.qvis;()];
 .vis.open:{[v]
   if[.vis.RUN; .vis.push v; :(::)];
   .[.qvis.init;(.vis.W;.vis.H;.vis.SC);{[e]::}];  / tolerate an already-open window
+  .vis.FONT_PROP:.qvis.loadsysfont[`prop;9];
+  .vis.FONT_MONO:.qvis.loadsysfont[`mono;9];
+  if[.vis.FONT_MONO>=0; .vis.MONOW:first .qvis.textsize[.vis.FONT_MONO;"a"]];
   .vis.OZTS:@[get;`.z.ts;{[e](::)}];
   .vis.OT:system"t";
   .vis.RUN:1b;
@@ -148,7 +161,7 @@ if[()~@[key;`.qvis;()];
 .vis.menuDraw:{[]
   if[not count .vis.MENU; :(::)];
   m:.vis.MENU; its:m`items;
-  w:14+6*max count each its; h:4+12*count its;
+  w:14+max .vis.textWidth[.vis.FONT_PROP;] each its; h:4+12*count its;
   x0:0|(.vis.W-w)&m`x; y0:0|(.vis.H-25-h)&m`y;  / keep clear of the command bar
   .qvis.rect[x0;y0;w;h;.vis.BG];
   .qvis.line[x0;y0;x0+w;y0;.vis.BORD]; .qvis.line[x0;y0+h;x0+w;y0+h;.vis.BORD];
@@ -156,7 +169,7 @@ if[()~@[key;`.qvis;()];
   .vis.menuItem[x0;y0;w]'[til count its;its;m`acts];}
 .vis.menuItem:{[x0;y0;w;i;s;a]
   y:y0+3+12*i;
-  .qvis.text[x0+7;y;1;.qvis.white;s];
+  .vis.drawText[x0+7;y;.vis.FONT_PROP;.qvis.white;s];
   .vis.spot[x0;y-2;w;12;{[a;e] .vis.MENU:(); a e}[a]];}
 
 .vis.frame:{[]
@@ -190,12 +203,12 @@ if[()~@[key;`.qvis;()];
 / breadcrumb trail; clicking a crumb pops back to that view
 .vis.crumbs:{[]
   nms:{string x`name} each .vis.STACK;
-  ws:{6*count x} each nms;
+  ws:{.vis.textWidth[.vis.FONT_PROP;x]} each nms;
   xs:4+sums 0,-1_ws+12;
   .vis.crumb[count nms]'[til count nms;nms;xs;ws];}
 .vis.crumb:{[n;i;nm;x0;wd]
-  .qvis.text[x0;4;1;$[i=n-1;.qvis.white;.qvis.gray];nm];
-  if[i<n-1; .qvis.text[x0+wd+3;4;1;.qvis.gray;">"]];
+  .vis.drawText[x0;4;.vis.FONT_PROP;$[i=n-1;.qvis.white;.qvis.gray];nm];
+  if[i<n-1; .vis.drawText[x0+wd+3;4;.vis.FONT_PROP;.qvis.gray;">"]];
   .vis.spot[x0;2;wd;10;.vis.popTo[i]];}
 
 / shared scroll-offset update: arrows move on press, auto-repeat after ~1/3s
@@ -279,7 +292,8 @@ if[()~@[key;`.qvis;()];
   px:x0+`long$(pw-1)*(v-xlo)%1e-9|xhi-xlo;
   .qvis.line[px;y0;px;y0+ph-1;.vis.GRID];
   s:.vis.fmtx[xt;xlo;xhi;v];
-  .qvis.text[x0|(x0+pw-6*count s)&px-3*count s;y0+ph+4;1;.qvis.gray;s];}
+  w:.vis.textWidth[.vis.FONT_PROP;s];
+  .vis.drawText[x0|(x0+pw-w)&px-w div 2;y0+ph+4;.vis.FONT_PROP;.qvis.gray;s];}
 
 .vis.fmtnum:{ax:abs x:"f"$x;
   $[ax>=1e9;(.vis.r1 x%1e9),"B";ax>=1e6;(.vis.r1 x%1e6),"M";
@@ -296,7 +310,10 @@ if[()~@[key;`.qvis;()];
   } each value flip t}
 
 / pixel width per column from header + visible cell strings, 20-char cap
-.vis.widths:{[hdrs;colz] 8+6*20&{max count each x} each (enlist each hdrs),'colz}
+.vis.widths:{[hdrs;colz]
+  $[.vis.FONT_PROP>=0;
+    8+{max .vis.textWidth[.vis.FONT_PROP;] each x} each (enlist each hdrs),'{20 sublist' x} each colz;
+    8+6*20&{max count each x} each (enlist each hdrs),'colz]}
 
 / wrap each line to w chars, preserving blank lines
 .vis.wrap:{[w;lines] raze {[w;l] $[count l;(0N;w)#l;enlist l]}[w] each lines}
@@ -349,8 +366,6 @@ if[()~@[key;`.qvis;()];
   ];
   colz}
 
-/ draw one syntax-colored line of q at (x0;y): group consecutive same-color
-/ runs and draw each as one text call
 .vis.qline:{[x0;y;s]
   if[0=count s; :(::)];
   colz:.vis.charColors s;
@@ -358,7 +373,7 @@ if[()~@[key;`.qvis;()];
   while[ci<count s;
     c:colz ci; j:ci;
     while[(j<count s) and colz[j]~c; j+:1];
-    .qvis.text[x0+6*ci; y; 1; c; s ci+til j-ci];
+    .vis.drawText[x0+.vis.MONOW*ci; y; .vis.FONT_MONO; c; s ci+til j-ci];
     ci:j];}
 
 .vis.txtDraw:{[ev]
@@ -366,7 +381,7 @@ if[()~@[key;`.qvis;()];
   off:.vis.scroll[ev;page;0|count[ls]-page;st`off]; .vis.put[`off;off];
   shown:page sublist off _ ls;
   .vis.qline[8]'[18+10*til count shown;shown];
-  .qvis.text[8;.vis.H-35;1;.qvis.gray;(string count ls)," lines  esc back"];}
+  .vis.drawText[8;.vis.H-35;.vis.FONT_PROP;.qvis.gray;(string count ls)," lines  esc back"];}
 
 .vis.srcLines:{[fq]
   v:get fq;
@@ -427,7 +442,7 @@ if[()~@[key;`.qvis;()];
   s:.vis.tabFoot[st;off;m];
   if[(c0>0) or nc>count keep;
     s,:"  cols ",(string c0+1),"-",(string c0+count keep),"/",(string nc)," (left/right)"];
-  .qvis.text[x0;y0+ph;1;.qvis.gray;(pw div 6) sublist s];}  / clip to the box - a dash panel is narrower than the full window
+  .vis.drawText[x0;y0+ph;.vis.FONT_PROP;.qvis.gray;(pw div 6) sublist s];}  / clip to the box - a dash panel is narrower than the full window
 
 / click a row -> full record as "col: value" lines, untruncated
 .vis.tabRow:{[st;r;e]
@@ -436,10 +451,10 @@ if[()~@[key;`.qvis;()];
   .vis.push .vis.txtView[`$"row ",string r;.vis.wrap[.vis.TXTC;ls]];}
 
 .vis.tabCol:{[st;off;y0;x0;w0;hdr;cn;cs]
-  .qvis.text[x0;y0;1;.qvis.yellow;hdr];
+  .vis.drawText[x0;y0;.vis.FONT_PROP;.qvis.yellow;hdr];
   .vis.spot[x0;y0-2;w0;11;.vis.tabSort cn];
   {[st;off;y0;cn;x0;w0;i;s]
-    .qvis.text[x0;y0+12+10*i;1;.qvis.white;20 sublist s];
+    .vis.drawText[x0;y0+12+10*i;.vis.FONT_PROP;.qvis.white;20 sublist s];
     .vis.spotR[x0;y0+11+10*i;w0;10;.vis.cellMenu[st;cn;off+i]]}[st;off;y0;cn;x0;w0]
     '[til count cs;cs];}
 
@@ -522,12 +537,12 @@ if[()~@[key;`.qvis;()];
 .vis.nsDraw:{[ev]
   st:.vis.st[]; rows:st`rows; n:count rows; page:.vis.TROWS;
   off:.vis.scroll[ev;page;0|n-page;st`off]; .vis.put[`off;off];
-  .qvis.text[8;18;1;.qvis.yellow;"name"]; .qvis.text[360;18;1;.qvis.yellow;"kind"];
-  .qvis.text[430;18;1;.qvis.yellow;"type"]; .qvis.text[490;18;1;.qvis.yellow;"count"];
-  .qvis.text[570;18;1;.qvis.yellow;"size"];
+  .vis.drawText[8;18;.vis.FONT_PROP;.qvis.yellow;"name"]; .vis.drawText[360;18;.vis.FONT_PROP;.qvis.yellow;"kind"];
+  .vis.drawText[430;18;.vis.FONT_PROP;.qvis.yellow;"type"]; .vis.drawText[490;18;.vis.FONT_PROP;.qvis.yellow;"count"];
+  .vis.drawText[570;18;.vis.FONT_PROP;.qvis.yellow;"size"];
   shown:page sublist off _ rows;
   .vis.nsRow'[til count shown;shown];
-  .qvis.text[8;.vis.H-35;1;.qvis.gray;
+  .vis.drawText[8;.vis.H-35;.vis.FONT_PROP;.qvis.gray;
     (string n)," entries  click to open  esc back"];}
 
 .vis.nsRow:{[i;r]
@@ -535,11 +550,11 @@ if[()~@[key;`.qvis;()];
   col:(`ns`table`dict`var`fn!(.qvis.yellow;.qvis.cyan;.qvis.magenta;.qvis.white;.qvis.green)) r`kind;
   fqstr: string r`fq;
   if[(type fqstr)=-10h; fqstr: enlist fqstr];
-  .qvis.text[8;y;1;col;56 sublist fqstr];
-  .qvis.text[360;y;1;.qvis.gray;string r`kind];
-  .qvis.text[430;y;1;.qvis.gray;string r`tp];
-  if[not null r`cnt; .qvis.text[490;y;1;.qvis.gray;.vis.fmtnum r`cnt]];
-  if[not null r`sz; .qvis.text[570;y;1;.qvis.gray;.vis.fmtb r`sz]];
+  .vis.drawText[8;y;.vis.FONT_PROP;col;56 sublist fqstr];
+  .vis.drawText[360;y;.vis.FONT_PROP;.qvis.gray;string r`kind];
+  .vis.drawText[430;y;.vis.FONT_PROP;.qvis.gray;string r`tp];
+  if[not null r`cnt; .vis.drawText[490;y;.vis.FONT_PROP;.qvis.gray;.vis.fmtnum r`cnt]];
+  if[not null r`sz; .vis.drawText[570;y;.vis.FONT_PROP;.qvis.gray;.vis.fmtb r`sz]];
   .vis.spot[4;y-1;630;10;.vis.nsAct[r`fq;r`kind]];
   .vis.spotR[4;y-1;630;10;.vis.nsMenu r];}
 
@@ -606,7 +621,7 @@ if[()~@[key;`.qvis;()];
 .vis.tick:{[x0;y0;pw;ph;lo;hi;v]
   y:.vis.py[y0;ph;lo;1e-9|hi-lo;v];
   .qvis.line[x0+1;y;x0+pw;y;.vis.GRID];
-  .qvis.text[x0-.vis.YLGUT;y-3;1;.qvis.gray;8 sublist .vis.fmtnum v];}
+  .vis.drawText[x0-.vis.YLGUT;y-3;.vis.FONT_PROP;.qvis.gray;8 sublist .vis.fmtnum v];}
 
 .vis.plot:{[x]
   $[.Q.qt x; .vis.plotTbl x;
@@ -644,13 +659,13 @@ if[()~@[key;`.qvis;()];
   st:.vis.st[]; ys:st`ys; nms:st`nms; xss:st`xss;
   bx:.vis.boxOr[st;.vis.BOX]; x0:bx 0; y0:bx 1; pw:bx 2; ph:bx 3;
   allv:.vis.finite raze ys;
-  if[not count allv; .qvis.text[x0;y0;1;.qvis.red;"no data"]; :(::)];
+  if[not count allv; .vis.drawText[x0;y0;.vis.FONT_PROP;.qvis.red;"no data"]; :(::)];
   lo:min allv; hi:max allv; if[lo=hi; hi:lo+1f];
   .vis.axes[x0;y0;pw;ph;lo;hi];
   .vis.xticks[x0;y0;pw;ph;st`xt;st`xlo;st`xhi];
   .vis.plotline[(x0;y0;pw;ph);(st`xlo;st`xhi);(lo;hi)]'
     [xss;ys;.vis.PAL til[count ys] mod count .vis.PAL];
-  {[x0;pw;y0;i;nm;c] .qvis.text[x0+pw-144;y0+10*i;1;c;16 sublist nm]}[x0;pw;y0]
+  {[x0;pw;y0;i;nm;c] .vis.drawText[x0+pw-144;y0+10*i;.vis.FONT_PROP;c;16 sublist nm]}[x0;pw;y0]
     '[til count nms;nms;.vis.PAL til[count nms] mod count .vis.PAL];
   / crosshair + nearest-point readout per series while hovering the plot area
   mx:ev`mx; my:ev`my;
@@ -658,10 +673,10 @@ if[()~@[key;`.qvis;()];
     .qvis.line[mx;y0;mx;y0+ph-1;.vis.BORD];
     xv:st[`xlo]+(st[`xhi]-st`xlo)*(mx-x0)%pw-1;
     tx:(x0+pw-90)&mx+6;
-    .qvis.text[tx;y0+2;1;.qvis.gray;.vis.fmtx[st`xt;st`xlo;st`xhi;xv]];
+    .vis.drawText[tx;y0+2;.vis.FONT_PROP;.qvis.gray;.vis.fmtx[st`xt;st`xlo;st`xhi;xv]];
     {[tx;y0;xv;i;nm;xs;ser;c]
       if[count xs; j:.vis.nearest["f"$xs;xv];
-        .qvis.text[tx;y0+12+10*i;1;c;nm,": ",.vis.fmtnum ser j]]
+        .vis.drawText[tx;y0+12+10*i;.vis.FONT_PROP;c;nm,": ",.vis.fmtnum ser j]]
       }[tx;y0;xv]'[til count nms;nms;xss;ys;.vis.PAL til[count nms] mod count .vis.PAL]];}
 
 / bin a numeric vector into `mn`rg`c (min, range, per-bin counts) - shared by
@@ -690,9 +705,9 @@ if[()~@[key;`.qvis;()];
   bx:.vis.boxOr[st;.vis.BOX]; x0:bx 0; y0:bx 1; pw:bx 2; ph:bx 3;
   .vis.axes[x0;y0;pw;ph;0f;"f"$mx:1|max c];
   .vis.hbar[x0;y0;ph;1|pw div bins;mx]'[til bins;c];
-  .qvis.text[x0;y0+ph+4;1;.qvis.gray;.vis.fmtnum st`mn];
+  .vis.drawText[x0;y0+ph+4;.vis.FONT_PROP;.qvis.gray;.vis.fmtnum st`mn];
   s:.vis.fmtnum st[`mn]+st`rg;
-  .qvis.text[(x0+pw)-6*count s;y0+ph+4;1;.qvis.gray;s];}
+  .vis.drawText[(x0+pw)-.vis.textWidth[.vis.FONT_PROP;s];y0+ph+4;.vis.FONT_PROP;.qvis.gray;s];}
 .vis.hbar:{[x0;y0;ph;bw;mx;i;c]
   h:`long$(ph-2)*c%mx;
   .qvis.rect[x0+1+i*bw;(y0+ph-1)-h;1|bw-1;h;.qvis.cyan];}
@@ -721,7 +736,8 @@ if[()~@[key;`.qvis;()];
     .qvis.line[x0;my;x0+pw-1;my;.vis.BORD];
     xv:xlo+(xhi-xlo)*(mx-x0)%pw-1; yv:ylo+(yhi-ylo)*((y0+ph-1)-my)%ph-1;
     s:(.vis.fmtx[xt;xlo;xhi;xv]),", ",.vis.fmtnum yv;
-    .qvis.text[0|(x0+pw-6*count s)&mx+6;(y0+2)|my-10;1;.qvis.gray;s]];}
+    w:.vis.textWidth[.vis.FONT_PROP;s];
+    .vis.drawText[0|(x0+pw-w)&mx+6;(y0+2)|my-10;.vis.FONT_PROP;.qvis.gray;s]];}
 
 / ---------------------------------------------------------------------------
 / Candlestick - .vis.candle t where t has open/high/low/close columns; a
@@ -753,7 +769,7 @@ if[()~@[key;`.qvis;()];
   n:count first ohlc;
   lo2:.vis.finite ohlc 2; hi2:.vis.finite ohlc 1;
   if[(0=n) or (not count lo2) or not count hi2;
-    .qvis.text[x0;y0;1;.qvis.red;"no data"]; :(::)];
+    .vis.drawText[x0;y0;.vis.FONT_PROP;.qvis.red;"no data"]; :(::)];
   lo:min lo2; hi:max hi2; if[lo=hi; hi:lo+1f];
   .vis.axes[x0;y0;pw;ph;lo;hi];
   .vis.xticks[x0;y0;pw;ph;st`xt;st`xlo;st`xhi];
@@ -795,7 +811,7 @@ if[()~@[key;`.qvis;()];
   yv:py x; yz:py 0f;
   .qvis.rect[x0+1+i*bw;yv&yz;1|bw-2;1|1+abs yv-yz;$[x<0;.qvis.red;.qvis.cyan]];
   s:(bw div 6) sublist st[`lbl] i;
-  if[count s; .qvis.text[x0+1+i*bw;yl+4;1;.qvis.gray;s]];}
+  if[count s; .vis.drawText[x0+1+i*bw;yl+4;.vis.FONT_PROP;.qvis.gray;s]];}
 
 / ---------------------------------------------------------------------------
 / Dashboard - .vis.dash panels tiles several live views into one window.
@@ -866,10 +882,10 @@ if[()~@[key;`.qvis;()];
   ob:pnl`outer; ox:ob 0; oy:ob 1; ow:ob 2; oh:ob 3;
   .qvis.line[ox;oy;ox+ow;oy;.vis.BORD]; .qvis.line[ox;oy+oh;ox+ow;oy+oh;.vis.BORD];
   .qvis.line[ox;oy;ox;oy+oh;.vis.BORD]; .qvis.line[ox+ow;oy;ox+ow;oy+oh;.vis.BORD];
-  .qvis.text[ox+3;oy+2;1;.qvis.gray;string pnl`kind];
+  .vis.drawText[ox+3;oy+2;.vis.FONT_PROP;.qvis.gray;string pnl`kind];
   vst:pnl`vst;
   $[99h<>type vst;
-    .qvis.text[ox+3;oy+16;1;.qvis.red;(1|(ow-6) div 6) sublist string vst];
+    .vis.drawText[ox+3;oy+16;.vis.FONT_PROP;.qvis.red;(1|(ow-6) div 6) sublist string vst];
     [.vis.STO:vst;
      @[.vis.WKIND[pnl`kind][1];ev;{[e] -1"[qVis] dash panel error: ",e}];
      pnl[`vst]:.vis.STO; .vis.STO:(::)]];
@@ -941,7 +957,7 @@ if[()~@[key;`.qvis;()];
     st:st,.vis.WKIND[st`wk][0] .vis.wfetch st`wt; st[`lp]:.z.P;
     .vis.putAll st];
   .vis.WKIND[st`wk][1] ev;
-  .qvis.text[.vis.W-90;4;1;.qvis.gray;"watch ",(string st`ms),"ms"];}
+  .vis.drawText[.vis.W-90;4;.vis.FONT_PROP;.qvis.gray;"watch ",(string st`ms),"ms"];}
 
 / ---------------------------------------------------------------------------
 / Partitioned-database overview
@@ -962,20 +978,20 @@ if[()~@[key;`.qvis;()];
 
 .vis.dbDraw:{[ev]
   st:.vis.st[]; ts:st`ts; n:count ts;
-  .qvis.text[8;18;1;.qvis.gray;st`hdr];
+  .vis.drawText[8;18;.vis.FONT_PROP;.qvis.gray;st`hdr];
   page:(.vis.H-84) div 12;
   off:.vis.scroll[ev;page;0|n-page;st`off]; .vis.put[`off;off];
   ix:off+til 0|page&n-off;
   mx:1|max 0,raze st[`pns] ix;
   .vis.dbRow[st;mx]'[til count ix;ix];
-  .qvis.text[8;.vis.H-35;1;.qvis.gray;"click a table to open  esc back"];}
+  .vis.drawText[8;.vis.H-35;.vis.FONT_PROP;.qvis.gray;"click a table to open  esc back"];}
 
 .vis.dbRow:{[st;mx;i;j]
   y:32+12*i;
   t:st[`ts] j;
-  .qvis.text[8;y;1;.qvis.cyan;string t];
+  .vis.drawText[8;y;.vis.FONT_PROP;.qvis.cyan;string t];
   c:st[`cs] j;
-  .qvis.text[150;y;1;.qvis.white;$[null c;"?";.vis.fmtnum c]];
+  .vis.drawText[150;y;.vis.FONT_PROP;.qvis.white;$[null c;"?";.vis.fmtnum c]];
   pn:st[`pns] j;
   if[count pn;
     bw:2|560 div count pn;
@@ -996,14 +1012,14 @@ if[()~@[key;`.qvis;()];
   mx:1|max w`used`heap`peak;
   {[w;mx;i;k]
     y:24+14*i;
-    .qvis.text[8;y;1;.qvis.gray;string k];
-    .qvis.text[60;y;1;.qvis.white;.vis.fmtb w k];
+    .vis.drawText[8;y;.vis.FONT_PROP;.qvis.gray;string k];
+    .vis.drawText[60;y;.vis.FONT_PROP;.qvis.white;.vis.fmtb w k];
     .qvis.rect[130;y;600&`long$600*(w k)%mx;8;$[k=`used;.qvis.green;k=`heap;.qvis.cyan;.qvis.gray]];
   }[w;mx]'[til 5;`used`heap`peak`mmap`syms];
-  .qvis.text[8;110;1;.qvis.gray;"used history"];
+  .vis.drawText[8;110;.vis.FONT_PROP;.qvis.gray;"used history"];
   .vis.plotline[(8;122;.vis.W-20;.vis.H-172);(0f;"f"$1|max[count h]-1);
     (0f;"f"$1|max h);"f"$til count h;"f"$h;.qvis.green];
-  .qvis.text[8;.vis.H-35;1;.qvis.gray;"esc back"];}
+  .vis.drawText[8;.vis.H-35;.vis.FONT_PROP;.qvis.gray;"esc back"];}
 
 / ---------------------------------------------------------------------------
 / Filter - type /clause at the command bar. On a table view the clause is a
@@ -1125,21 +1141,21 @@ if[()~@[key;`.qvis;()];
 
 .vis.cmdClick:{[ev]
   if[(ev`my)<.vis.H-13; :(::)];
-  hoff:0|.vis.CX-(.vis.W-24) div 6;
-  .vis.CX:count[.vis.CMD]&0|hoff+((ev`mx)-18) div 6;}
+  hoff:0|.vis.CX-(.vis.W-24) div .vis.MONOW;
+  .vis.CX:count[.vis.CMD]&0|hoff+((ev`mx)-18) div .vis.MONOW;}
 
 .vis.cmdDraw:{[]
   .vis.CFC+:1;
   .qvis.rect[0;.vis.H-25;.vis.W;25;.vis.BG];  / opaque strip so view rows don't bleed through
   if[count .vis.RES;
-    .qvis.text[8;.vis.H-23;1;$["'"=first .vis.RES;.qvis.red;.qvis.gray];.vis.RES]];
+    .vis.drawText[8;.vis.H-23;.vis.FONT_PROP;$["'"=first .vis.RES;.qvis.red;.qvis.gray];.vis.RES]];
   .qvis.rect[0;.vis.H-13;.vis.W;13;.qvis.white];
-  .qvis.text[4;.vis.H-10;1;.qvis.black;"q)"];
-  maxc:(.vis.W-24) div 6;
+  .vis.drawText[4;.vis.H-10;.vis.FONT_MONO;.qvis.black;"q)"];
+  maxc:(.vis.W-24) div .vis.MONOW;
   hoff:0|.vis.CX-maxc;                      / h-scroll so the cursor stays visible
-  .qvis.text[18;.vis.H-10;1;.qvis.black;maxc sublist hoff _ .vis.CMD];
+  .vis.drawText[18;.vis.H-10;.vis.FONT_MONO;.qvis.black;maxc sublist hoff _ .vis.CMD];
   if[12>.vis.CFC mod 20;
-    .qvis.rect[18+6*.vis.CX-hoff;.vis.H-12;1;11;.qvis.black]];}
+    .qvis.rect[18+.vis.MONOW*.vis.CX-hoff;.vis.H-12;1;11;.qvis.black]];}
 
 / ---------------------------------------------------------------------------
 / REPL - multiline q editor (top pane) + result pane (bottom).
@@ -1300,7 +1316,7 @@ if[()~@[key;`.qvis;()];
     if[ev[`my] within (18;edh-1);
       st[`sa]:-1;
       st[`cy]:0|(count[st`lines]-1)&(st`off)+(ev[`my]-18) div 10;
-      st[`cx]:count[st[`lines]st`cy]&0|(ev[`mx]-8) div 6]];
+      st[`cx]:count[st[`lines]st`cy]&0|(ev[`mx]-8) div .vis.MONOW]];
   st[`fc]:1+st`fc;
   .vis.REPLB::st`lines;
   / executed code may itself have opened a view (.vis.tab etc.) and replaced
@@ -1309,7 +1325,7 @@ if[()~@[key;`.qvis;()];
   .vis.putAll st;
   / render: editor pane, blinking cursor, divider, output pane
   off:st`off; shown:.vis.EDR sublist off _ st`lines;
-  maxc:(.vis.W-16) div 6;
+  maxc:(.vis.W-16) div .vis.MONOW;
   hoff:0|(st`cx)-maxc-1;                    / h-scroll so the cursor stays visible
   cyv:st[`cy]-off;
   if[cyv within (0;.vis.EDR-1); .qvis.rect[0;17+10*cyv;.vis.W;10;.vis.GRID]];
@@ -1322,11 +1338,11 @@ if[()~@[key;`.qvis;()];
     .vis.qline[8;18+10*i;maxc sublist ho _ s]}[st;off;maxc;hoff]
     '[til count shown;shown];
   if[(cyv within (0;.vis.EDR-1)) and 12>(st`fc) mod 20;
-    .qvis.rect[7+6*(st`cx)-hoff;17+10*cyv;1;9;.qvis.white]];
+    .qvis.rect[7+.vis.MONOW*(st`cx)-hoff;17+10*cyv;1;9;.qvis.white]];
   .qvis.line[0;edh+2;.vis.W;edh+2;.vis.BORD];
   oshown:outr sublist (st`ooff) _ st`out;
-  {[y0;i;s] .qvis.text[8;y0+10*i;1;
+  {[y0;i;s] .vis.drawText[8;y0+10*i;.vis.FONT_MONO;
     $[(0<count s) and "'"=first s;.qvis.red;.qvis.white];s]}[edh+8]
     '[til count oshown;oshown];
-  .qvis.text[8;.vis.H-12;1;.qvis.gray;
+  .vis.drawText[8;.vis.H-12;.vis.FONT_PROP;.qvis.gray;
     "cmd+enter run  cmd+v paste  tab indent  shift+arrows/cmd+a select  cmd+c/x copy/cut  esc back"];}

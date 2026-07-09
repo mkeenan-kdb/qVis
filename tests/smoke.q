@@ -404,5 +404,18 @@ ok["STO st";     (.vis.STO)~.vis.st[]];
 ok["STO putAll"; (enlist `c)~key .vis.STO];
 .vis.STO:(::);
 
+/ font rendering and sizing assertions
+fid:.qvis.loadsysfont[`prop;9];
+if[fid>=0;
+  ok["loadfont success"; fid >= 0];
+  sz:.qvis.textsize[fid;"Hello"];
+  ok["textsize type"; (type sz)=6h];
+  ok["textsize positive"; all sz > 0];
+  ok["drawText loaded"; (::)~.vis.drawText[0;0;fid;0i;"test"]];
+  ok["textWidth proportional"; (.vis.textWidth[fid;"Hello"]) > 0];
+  ];
+ok["drawText fallback"; (::)~.vis.drawText[0;0;-1i;0i;"test"]];
+ok["textWidth fallback"; 30~.vis.textWidth[-1i;"Hello"]];
+
 -1 "all smoke tests passed";
 exit 0

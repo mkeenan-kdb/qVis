@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.20)
 project(qVis)
 
 set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Allow undefined symbols since kdb+ API (e.g. krr) is provided by the main executable q
 if (APPLE)
@@ -10,8 +11,9 @@ if (APPLE)
 endif()
 
 find_package(SDL3 REQUIRED)
+find_package(SDL3_ttf REQUIRED)
 
 add_library(qSDL SHARED qSDL.cpp)
-target_link_libraries(qSDL PRIVATE SDL3::SDL3)
+target_link_libraries(qSDL PRIVATE SDL3::SDL3 SDL3_ttf::SDL3_ttf)
 # To avoid the "lib" prefix for q shared libraries, we set the output name and prefix
 set_target_properties(qSDL PROPERTIES PREFIX "" OUTPUT_NAME "qSDL" SUFFIX ".so")

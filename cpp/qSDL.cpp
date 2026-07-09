@@ -1,11 +1,11 @@
 #include <SDL3/SDL.h>
+#include <SDL3_ttf/SDL_ttf.h>
 #include <atomic>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <pthread.h>
-#include <string>
 #include <unistd.h>
 #include <vector>
 
@@ -144,6 +144,7 @@ static int g_scale = 1;
 
 // Single pixel buffer – q draws here, present[] uploads it to the GPU.
 static std::vector<uint32_t> g_pixels;
+static std::vector<TTF_Font *> g_fonts;
 
 static int g_pipe[2] = {-1, -1};
 static pthread_t g_timer_thread;
@@ -151,8 +152,8 @@ static std::atomic<bool> g_running{false};
 
 // Input state accumulated by the event pump (main thread only - the sd1
 // callback and all q_ reads run on the q main thread, so no atomics needed).
-static float g_wheel = 0;   // scroll wheel delta since last q_mouse read
-static bool g_quit = false; // set once the window close button is pressed
+static float g_wheel = 0;     // scroll wheel delta since last q_mouse read
+static bool g_quit = false;   // set once the window close button is pressed
 static std::string g_textbuf; // UTF-8 typed since last q_textin read
 
 // ---------------------------------------------------------------------------
@@ -233,6 +234,12 @@ K q_init(K w, K h, K s) {
   if (w->t != -KI || h->t != -KI || s->t != -KI)
     return krr((S) "type");
 
+  if (!TTF_WasInit()) {
+    if (!TTF_Init()) {
+      return krr((S) "TTF_Init failed");
+    }
+  }
+
   int new_w = w->i, new_h = h->i, new_s = s->i;
   if (new_w <= 0 || new_h <= 0 || new_s <= 0)
     return krr((S) "invalid dimensions");
@@ -242,8 +249,8 @@ K q_init(K w, K h, K s) {
 
   // --- Reuse a previously hidden window (after shutdown) -----------------
   if (g_window) {
-    g_width = new_w;
-    g_height = new_h;
+    g_width = new_w * new_s;
+    g_height = new_h * new_s;
     g_scale = new_s;
     g_pixels.assign(g_width * g_height, 0u);
 
@@ -260,7 +267,7 @@ K q_init(K w, K h, K s) {
     SDL_SetTextureScaleMode(g_texture, SDL_SCALEMODE_NEAREST);
     SDL_SetTextureBlendMode(g_texture, SDL_BLENDMODE_NONE);
 
-    SDL_SetWindowSize(g_window, g_width * g_scale, g_height * g_scale);
+    SDL_SetWindowSize(g_window, g_width, g_height);
     SDL_ShowWindow(g_window);
     SDL_RaiseWindow(g_window);
     SDL_RenderClear(g_renderer);
@@ -277,8 +284,8 @@ K q_init(K w, K h, K s) {
   }
 
   // --- First-time initialisation ----------------------------------------
-  g_width = new_w;
-  g_height = new_h;
+  g_width = new_w * new_s;
+  g_height = new_h * new_s;
   g_scale = new_s;
 
   g_pixels.assign(g_width * g_height, 0u);
@@ -287,7 +294,7 @@ K q_init(K w, K h, K s) {
   if (!SDL_Init(SDL_INIT_VIDEO))
     return krr((S) "sdl init failed");
 
-  g_window = SDL_CreateWindow("qVis", g_width * g_scale, g_height * g_scale,
+  g_window = SDL_CreateWindow("qVis", g_width, g_height,
                               SDL_WINDOW_HIGH_PIXEL_DENSITY);
   if (!g_window)
     return krr((S) "window creation failed");
@@ -356,6 +363,19 @@ K q_shutdown(K unused) {
   g_wheel = 0;
   g_quit = false;
   g_textbuf.clear();
+
+  // Close and clean up all loaded fonts
+  for (auto font : g_fonts) {
+    if (font) {
+      TTF_CloseFont(font);
+    }
+  }
+  g_fonts.clear();
+
+  if (TTF_WasInit()) {
+    TTF_Quit();
+  }
+
   return (K)0;
 }
 
@@ -415,7 +435,11 @@ K q_clear(K color) {
 K q_pixel(K x, K y, K color) {
   if (x->t != -KI || y->t != -KI || color->t != -KI)
     return krr((S) "type");
-  set_pixel(x->i, y->i, (uint32_t)color->i);
+  int rx = x->i * g_scale, ry = y->i * g_scale;
+  uint32_t c = (uint32_t)color->i;
+  for (int j = ry; j < ry + g_scale; ++j)
+    for (int i = rx; i < rx + g_scale; ++i)
+      set_pixel(i, j, c);
   return (K)0;
 }
 
@@ -424,7 +448,7 @@ K q_line(K x1, K y1, K x2, K y2, K color) {
       color->t != -KI)
     return krr((S) "type");
 
-  int ax = x1->i, ay = y1->i, bx = x2->i, by = y2->i;
+  int ax = x1->i * g_scale, ay = y1->i * g_scale, bx = x2->i * g_scale, by = y2->i * g_scale;
   uint32_t c = (uint32_t)color->i;
 
   int dx = std::abs(bx - ax), sx = ax < bx ? 1 : -1;
@@ -452,7 +476,7 @@ K q_rect(K x, K y, K w, K h, K color) {
       color->t != -KI)
     return krr((S) "type");
 
-  int rx = x->i, ry = y->i, rw = w->i, rh = h->i;
+  int rx = x->i * g_scale, ry = y->i * g_scale, rw = w->i * g_scale, rh = h->i * g_scale;
   uint32_t c = (uint32_t)color->i;
   for (int j = ry; j < ry + rh; ++j)
     for (int i = rx; i < rx + rw; ++i)
@@ -464,7 +488,7 @@ K q_circle(K x, K y, K r, K color) {
   if (x->t != -KI || y->t != -KI || r->t != -KI || color->t != -KI)
     return krr((S) "type");
 
-  int cx = x->i, cy = y->i, radius = r->i;
+  int cx = x->i * g_scale, cy = y->i * g_scale, radius = r->i * g_scale;
   uint32_t c = (uint32_t)color->i;
   // Filled circle via midpoint / scanline
   for (int dy2 = -radius; dy2 <= radius; ++dy2) {
@@ -488,10 +512,10 @@ K q_text(K x, K y, K scale, K color, K str) {
   if (scale->i <= 0)
     return krr((S) "invalid scale");
 
-  int oy = y->i, s = scale->i;
+  int oy = y->i * g_scale, s = scale->i * g_scale;
   uint32_t c = (uint32_t)color->i;
   G *chars = kC(str);
-  int cx = x->i;
+  int cx = x->i * g_scale;
   for (J k = 0; k < str->n; ++k) {
     const uint8_t *g = glyph_for((char)chars[k]);
     for (int ry = 0; ry < FONT_H; ++ry)
@@ -543,9 +567,22 @@ K q_setpixels(K pixels) {
     return krr((S) "not initialised");
   if (pixels->t != KI)
     return krr((S) "type - expected int list");
-  if (pixels->n != (J)(g_width * g_height))
+  int logical_w = g_width / g_scale;
+  int logical_h = g_height / g_scale;
+  if (pixels->n != (J)(logical_w * logical_h))
     return krr((S) "length - must equal width*height");
-  memcpy(g_pixels.data(), kI(pixels), g_width * g_height * sizeof(uint32_t));
+
+  uint32_t *src = (uint32_t *)kI(pixels);
+  for (int y = 0; y < logical_h; ++y) {
+    for (int x = 0; x < logical_w; ++x) {
+      uint32_t color = src[y * logical_w + x];
+      for (int sy = 0; sy < g_scale; ++sy) {
+        for (int sx = 0; sx < g_scale; ++sx) {
+          g_pixels[(y * g_scale + sy) * g_width + (x * g_scale + sx)] = color;
+        }
+      }
+    }
+  }
   return (K)0;
 }
 
@@ -628,6 +665,135 @@ K q_mouse(K unused) {
   g_wheel = 0;
 
   return xD(keys, vals);
+}
+
+static void blend_surface(SDL_Surface *src, int dst_x, int dst_y) {
+  if (!src)
+    return;
+
+  SDL_Surface *converted = SDL_ConvertSurface(src, SDL_PIXELFORMAT_ARGB8888);
+  if (!converted)
+    return;
+
+  uint32_t *src_pixels = (uint32_t *)converted->pixels;
+  int src_w = converted->w;
+  int src_h = converted->h;
+
+  for (int y = 0; y < src_h; ++y) {
+    int target_y = dst_y + y;
+    if (target_y < 0 || target_y >= g_height)
+      continue;
+
+    for (int x = 0; x < src_w; ++x) {
+      int target_x = dst_x + x;
+      if (target_x < 0 || target_x >= g_width)
+        continue;
+
+      uint32_t src_color = src_pixels[y * src_w + x];
+      uint8_t a = (src_color >> 24) & 0xFF;
+      if (a == 0)
+        continue;
+
+      if (a == 255) {
+        g_pixels[target_y * g_width + target_x] = src_color;
+      } else {
+        uint32_t bg_color = g_pixels[target_y * g_width + target_x];
+
+        uint8_t r_src = (src_color >> 16) & 0xFF;
+        uint8_t g_src = (src_color >> 8) & 0xFF;
+        uint8_t b_src = src_color & 0xFF;
+
+        uint8_t r_bg = (bg_color >> 16) & 0xFF;
+        uint8_t g_bg = (bg_color >> 8) & 0xFF;
+        uint8_t b_bg = bg_color & 0xFF;
+
+        uint8_t r_out = (r_src * a + r_bg * (255 - a)) / 255;
+        uint8_t g_out = (g_src * a + g_bg * (255 - a)) / 255;
+        uint8_t b_out = (b_src * a + b_bg * (255 - a)) / 255;
+
+        g_pixels[target_y * g_width + target_x] =
+            (0xFF << 24) | (r_out << 16) | (g_out << 8) | b_out;
+      }
+    }
+  }
+  SDL_DestroySurface(converted);
+}
+
+K q_load_font(K path, K pt_size) {
+  if (path->t != KC || pt_size->t != -KI)
+    return krr((S) "type");
+
+  std::string font_path((char *)kC(path), path->n);
+  int size = pt_size->i;
+
+  if (!TTF_WasInit()) {
+    if (!TTF_Init()) {
+      return krr((S) "TTF_Init failed");
+    }
+  }
+
+  TTF_Font *font = TTF_OpenFont(font_path.c_str(), (float)(size * g_scale));
+  if (!font) {
+    return krr((S) "failed to open font");
+  }
+
+  g_fonts.push_back(font);
+  return ki((int)g_fonts.size() - 1);
+}
+
+K q_draw_text(K x, K y, K font_id, K color, K str) {
+  if (x->t != -KI || y->t != -KI || font_id->t != -KI || color->t != -KI ||
+      str->t != KC)
+    return krr((S) "type");
+
+  int font_idx = font_id->i;
+  if (font_idx < 0 || font_idx >= (int)g_fonts.size() || !g_fonts[font_idx])
+    return krr((S) "invalid font id");
+
+  std::string text((char *)kC(str), str->n);
+  if (text.empty())
+    return (K)0;
+
+  TTF_Font *font = g_fonts[font_idx];
+  uint32_t c = (uint32_t)color->i;
+
+  SDL_Color sdl_color;
+  sdl_color.r = (c >> 16) & 0xFF;
+  sdl_color.g = (c >> 8) & 0xFF;
+  sdl_color.b = c & 0xFF;
+  sdl_color.a = 255;
+
+  SDL_Surface *surf =
+      TTF_RenderText_Blended(font, text.c_str(), text.length(), sdl_color);
+  if (!surf)
+    return (K)0;
+
+  blend_surface(surf, x->i * g_scale, y->i * g_scale);
+  SDL_DestroySurface(surf);
+
+  return (K)0;
+}
+
+K q_text_size(K font_id, K str) {
+  if (font_id->t != -KI || str->t != KC)
+    return krr((S) "type");
+
+  int font_idx = font_id->i;
+  if (font_idx < 0 || font_idx >= (int)g_fonts.size() || !g_fonts[font_idx])
+    return krr((S) "invalid font id");
+
+  std::string text((char *)kC(str), str->n);
+  TTF_Font *font = g_fonts[font_idx];
+
+  int w = 0, h = 0;
+  if (!TTF_GetStringSize(font, text.c_str(), text.length(), &w, &h)) {
+    return krr((S) "TTF_GetStringSize failed");
+  }
+
+  K r = ktn(KI, 2);
+  kI(r)[0] = w / g_scale;
+  kI(r)[1] = h / g_scale;
+  return r;
 }
 
 } // extern "C"

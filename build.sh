@@ -6,3 +6,4 @@ cmake --build build
 # q with SIGKILL (Code Signature Invalid) when it maps the stale signature
 rm -f qSDL.so
 cp build/qSDL.so .
+
