@@ -328,7 +328,7 @@ if[()~@[key;`.qvis;()];
   .vis.REPLB:.vis.srcLines fq;
   .vis.push .vis.replView[];}
 
-.vis.txtView:{[nm;lines] `name`draw`state!(nm;.vis.txtDraw;`off`lines`fq!(0;lines;$[-11h=type nm; nm; ::]))}
+.vis.txtView:{[nm;lines;fq] `name`draw`state!(nm;.vis.txtDraw;`off`lines`fq!(0;lines;fq))}
 
 / character-level syntax colorizer — works for both q and k code
 / returns a color list the same length as the input string
@@ -460,7 +460,7 @@ if[()~@[key;`.qvis;()];
 .vis.tabRow:{[st;r;e]
   d:first .vis.tabFetch[st;r;1];
   ls:{[d;k](string k),": ",.Q.s1 d k}[d] each key d;
-  .vis.push .vis.txtView[`$"row ",string r;.vis.wrap[.vis.TXTC;ls]];}
+  .vis.push .vis.txtView[`$"row ",string r;.vis.wrap[.vis.TXTC;ls];::];}
 
 .vis.tabCol:{[st;off;y0;x0;w0;hdr;cn;cs]
   .vis.drawText[x0;y0;.vis.FONT_PROP;.qvis.yellow;hdr];
@@ -581,8 +581,8 @@ if[()~@[key;`.qvis;()];
 .vis.nsAct:{[fq;kind;e]
   $[kind=`ns; .vis.push .vis.nsView fq;
     kind=`table; .vis.push .vis.tabView[fq;fq];
-    kind=`fn; .vis.push .vis.txtView[fq;.vis.srcLines fq];
-    .vis.push .vis.txtView[fq;.vis.valLines fq]];}
+    kind=`fn; .vis.push .vis.txtView[fq;.vis.srcLines fq;fq];
+    .vis.push .vis.txtView[fq;.vis.valLines fq;fq]];}
 
 / ---------------------------------------------------------------------------
 / Plots
@@ -622,6 +622,7 @@ if[()~@[key;`.qvis;()];
 / of all stretching to fill the same width.
 / box=(x0;y0;pw;ph), xrng=(xlo;xhi), yrng=(lo;hi) - bundled since q lambdas
 / cap out at 8 explicit params
+.vis.FILLA:40;                              / area-under-line / bar fill alpha (0-255)
 .vis.plotline:{[box;xrng;yrng;xs;ser;col]
   x0:box 0; y0:box 1; pw:box 2; ph:box 3; xlo:xrng 0; xhi:xrng 1; lo:yrng 0; hi:yrng 1;
   xrg:1e-9|xhi-xlo;
@@ -629,6 +630,8 @@ if[()~@[key;`.qvis;()];
   xs:xy 0; ser:xy 1;
   px:x0+`long$(pw-1)*(xs-xlo)%xrg;
   py:.vis.py[y0;ph;lo;1e-9|hi-lo;ser];
+  base:y0+ph-1;                             / plot floor - the shaded area's baseline
+  .qvis.polygon[px,(last px;first px);py,base,base;.qvis.fade[.vis.FILLA;col]];
   .qvis.line'[-1_px;-1_py;1_px;1_py;col];}
 
 .vis.axes:{[x0;y0;pw;ph;lo;hi]
@@ -727,7 +730,7 @@ if[()~@[key;`.qvis;()];
   .vis.drawText[(x0+pw)-.vis.textWidth[.vis.FONT_PROP;s];y0+ph+4;.vis.FONT_PROP;.qvis.gray;s];}
 .vis.hbar:{[x0;y0;ph;bw;mx;i;c]
   h:`long$(ph-2)*c%mx;
-  .qvis.rect[x0+1+i*bw;(y0+ph-1)-h;1|bw-1;h;.qvis.cyan];}
+  .qvis.rect[x0+1+i*bw;(y0+ph-1)-h;1|bw-1;h;.qvis.fade[200;.qvis.cyan]];}
 
 .vis.scatter:{[xx;yy]
   xt:.Q.t abs type xx;
@@ -744,8 +747,10 @@ if[()~@[key;`.qvis;()];
   xlo:min xx; xhi:max xx; if[xlo=xhi; xhi:xlo+1f];
   .vis.axes[x0;y0;pw;ph;ylo;yhi];
   .vis.xticks[x0;y0;pw;ph;xt;xlo;xhi];
+  / translucent fill - overlapping points compound into a brighter, denser
+  / patch instead of one flat opaque smear, so clusters read at a glance
   .qvis.rect'[x0+1+`long$(pw-4)*(xx-xlo)%xhi-xlo;
-        (y0+ph-3)-`long$(ph-4)*(yy-ylo)%yhi-ylo;2;2;.qvis.cyan];
+        (y0+ph-3)-`long$(ph-4)*(yy-ylo)%yhi-ylo;2;2;.qvis.fade[110;.qvis.cyan]];
   / crosshair + data-space readout while the mouse is over the plot area
   mx:ev`mx; my:ev`my;
   if[(mx within (x0;x0+pw-1)) and my within (y0;y0+ph-1);
@@ -839,7 +844,7 @@ if[()~@[key;`.qvis;()];
   .vis.bar1[st;py;x0;1|pw div n;y0+ph]'[til n;v];}
 .vis.bar1:{[st;py;x0;bw;yl;i;x]
   yv:py x; yz:py 0f;
-  .qvis.rect[x0+1+i*bw;yv&yz;1|bw-2;1|1+abs yv-yz;$[x<0;.qvis.red;.qvis.cyan]];
+  .qvis.rect[x0+1+i*bw;yv&yz;1|bw-2;1|1+abs yv-yz;.qvis.fade[200;$[x<0;.qvis.red;.qvis.cyan]]];
   s:(bw div 6) sublist st[`lbl] i;
   if[count s; .vis.drawText[x0+1+i*bw;yl+4;.vis.FONT_PROP;.qvis.gray;s]];}
 

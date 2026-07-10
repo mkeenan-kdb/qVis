@@ -19,6 +19,8 @@ c_pixel:    LIB 2: (`q_pixel;    3)   // x; y; color
 c_line:     LIB 2: (`q_line;     5)   // x1; y1; x2; y2; color
 c_rect:     LIB 2: (`q_rect;     5)   // x; y; w; h; color
 c_circle:   LIB 2: (`q_circle;   4)   // x; y; r; color
+c_polygon:  LIB 2: (`q_polygon;  3)   // xs; ys; color
+c_getpixel: LIB 2: (`q_getpixel; 2)   // x; y -> RGB int
 c_present:  LIB 2: (`q_present;  1)   // ::
 c_setpixels:LIB 2: (`q_setpixels;1)   // int-list of width*height ARGB values
 c_text:     LIB 2: (`q_text;     5)   // x; y; scale; color; string
@@ -32,8 +34,13 @@ c_drawtext: LIB 2: (`q_draw_text; 5)  // x; y; font_id; color; string
 c_textsize: LIB 2: (`q_text_size; 2)  // font_id; string -> (width; height)
 c_displaysize:LIB 2: (`q_display_size; 1)  // :: -> (w; h)
 // ---------------------------------------------------------------------------
-// Colors - ARGB 32-bit integers (0xAARRGGBB, alpha is ignored)
-// You can also pass any int literal, e.g. 0xFF8800i for orange
+// Colors - ARGB 32-bit integers (0xAARRGGBB).
+// You can also pass any int literal, e.g. 0xFF8800i for orange.
+// The alpha byte controls translucency: 0 (the default for every plain
+// 0xRRGGBB constant below, since none of them set it) means "unspecified" and
+// draws fully opaque, exactly as before this byte did anything. 1-254 blends
+// the new color into whatever is already there by that weight; 255 is an
+// explicit fully-opaque draw. Build a translucent color with fade[a;color].
 // ---------------------------------------------------------------------------
 black:   0i
 white:   16777215i // 0x00FFFFFF
@@ -47,6 +54,18 @@ gray:    8421504i  // 0x00808080
 
 /util for casting ints
 toInt:`int$'
+
+// fade[a; color]
+//   a     - alpha 1-255 (0 would round-trip as "unspecified"/opaque, so
+//           there's no way to ask for a fully invisible draw - just skip it)
+//   color - a plain 0xRRGGBB color (as above, or your own)
+//   Returns color with its alpha byte set to a, for use with rect/circle/
+//   polygon/line/pixel/text to draw a translucent shape. Builds the ARGB int
+//   via a wraparound trick because q's `int$` clamps (rather than wraps) an
+//   out-of-range long to 0W: any alpha>=128 needs the top bit set, which
+//   makes the 32-bit value negative once reinterpreted as a signed int.
+fade:{[a;color] v:(16777216*a)+color; `int$v-4294967296*v>2147483647}
+
 // ---------------------------------------------------------------------------
 // API
 // ---------------------------------------------------------------------------
@@ -95,6 +114,19 @@ rect: { [x; y; w; h; color] c_rect . toInt(x;y;w;h;color);}
 //   color - ARGB int
 //   Draws a filled circle.
 circle: { [x; y; r; color] c_circle . toInt(x;y;r;color);}
+
+// polygon[xs; ys; color]
+//   xs; ys - equal-length int lists of vertex coordinates (>=3 points)
+//   color  - ARGB int
+//   Draws a filled simple polygon (scanline fill, even-odd winding) - e.g.
+//   a shaded area under a line, or any translucent custom shape via fade[].
+polygon: { [xs; ys; color] c_polygon[`int$xs; `int$ys; `int$color] }
+
+// getpixel[x; y]
+//   Returns the RGB currently sitting in the back buffer at (x;y) as an int
+//   (no alpha - every stored pixel is fully opaque internally). Mainly for
+//   tests/tooling that want to check a blend without a screenshot.
+getpixel: { [x; y] c_getpixel . toInt(x;y)}
 
 // present[]
 //   Copies the back buffer to the front buffer and triggers a screen update.

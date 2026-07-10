@@ -27,7 +27,10 @@ lastT: .z.p
     if[by<=r;    by::r;   vy::abs vy];
     if[by>=H-r;  by::H-r; vy::neg abs vy];
 
-    .qvis.clear[.qvis.black];
+    / fade the previous frame toward black instead of clearing it outright -
+    / a translucent full-canvas overlay leaves a trailing streak behind the
+    / ball, showing off alpha blending (qVis.q's fade[])
+    .qvis.rect[0; 0; W; H; .qvis.fade[40; .qvis.black]];
     .qvis.circle[`int$bx; `int$by; r; .qvis.yellow];
     .qvis.present[]
     }

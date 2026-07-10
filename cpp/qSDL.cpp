@@ -1,5 +1,6 @@
 #include <SDL3/SDL.h>
 #include <SDL3_ttf/SDL_ttf.h>
+#include <algorithm>
 #include <atomic>
 #include <cctype>
 #include <cmath>
@@ -252,7 +253,7 @@ K q_init(K w, K h, K s) {
     g_width = new_w * new_s;
     g_height = new_h * new_s;
     g_scale = new_s;
-    g_pixels.assign(g_width * g_height, 0u);
+    g_pixels.assign(g_width * g_height, 0xFF000000u); // opaque black
 
     // Recreate the texture for (possibly) new dimensions
     if (g_texture) {
@@ -265,7 +266,7 @@ K q_init(K w, K h, K s) {
     if (!g_texture)
       return krr((S) "texture creation failed");
     SDL_SetTextureScaleMode(g_texture, SDL_SCALEMODE_NEAREST);
-    SDL_SetTextureBlendMode(g_texture, SDL_BLENDMODE_NONE);
+    SDL_SetTextureBlendMode(g_texture, SDL_BLENDMODE_BLEND);
 
     SDL_SetWindowSize(g_window, g_width, g_height);
     SDL_ShowWindow(g_window);
@@ -288,7 +289,7 @@ K q_init(K w, K h, K s) {
   g_height = new_h * new_s;
   g_scale = new_s;
 
-  g_pixels.assign(g_width * g_height, 0u);
+  g_pixels.assign(g_width * g_height, 0xFF000000u); // opaque black
 
   // SDL must be initialised on the main thread on macOS
   if (!SDL_Init(SDL_INIT_VIDEO))
@@ -318,10 +319,10 @@ K q_init(K w, K h, K s) {
   // Disable bilinear interpolation to make the scaled pixels crisp
   SDL_SetTextureScaleMode(g_texture, SDL_SCALEMODE_NEAREST);
 
-  // Disable alpha blending so pixels are copied as-is.
-  // Without this, alpha=0x00 colours (e.g. 0x00FF0000 red) are fully
-  // transparent and the window always appears black.
-  SDL_SetTextureBlendMode(g_texture, SDL_BLENDMODE_NONE);
+  // set_pixel/q_clear always store a forced-opaque alpha byte (see below),
+  // so every pixel reaching the texture is fully opaque - BLEND is safe and
+  // lets q_polygon/q_rect/etc. composite translucent fills into g_pixels.
+  SDL_SetTextureBlendMode(g_texture, SDL_BLENDMODE_BLEND);
 
   // Show an initial black frame immediately
   SDL_RenderClear(g_renderer);
@@ -420,27 +421,64 @@ K q_setclip(K s) {
 // Drawing primitives – all write into g_pixels (the CPU-side buffer).
 // Nothing is visible until q_present is called.
 // ---------------------------------------------------------------------------
+
+// Composites src's RGB onto bg's RGB with alpha weight a (0-255) and returns
+// a fully-opaque 0xFF?????? pixel. Shared by set_pixel and blend_surface,
+// which each decide separately what an a==0/255 edge means for their caller.
+static inline uint32_t blend_rgb(uint32_t bg, uint32_t src, uint8_t a) {
+  uint8_t r = (uint8_t)((((src >> 16) & 0xFF) * a + ((bg >> 16) & 0xFF) * (255 - a)) / 255);
+  uint8_t g = (uint8_t)((((src >> 8) & 0xFF) * a + ((bg >> 8) & 0xFF) * (255 - a)) / 255);
+  uint8_t b = (uint8_t)(((src & 0xFF) * a + (bg & 0xFF) * (255 - a)) / 255);
+  return 0xFF000000u | ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
+}
+
+// color is 0xAARRGGBB. Colors defined without an alpha byte (the whole
+// existing palette) have a==0, which we treat as "unspecified" -> fully
+// opaque, so every pre-existing caller keeps drawing solid. Pass a==1-254 for
+// a translucent fill, or 255 for an explicit fully-opaque draw.
 static inline void set_pixel(int x, int y, uint32_t color) {
-  if ((unsigned)x < (unsigned)g_width && (unsigned)y < (unsigned)g_height)
-    g_pixels[y * g_width + x] = color;
+  if ((unsigned)x >= (unsigned)g_width || (unsigned)y >= (unsigned)g_height)
+    return;
+  uint8_t a = (uint8_t)(color >> 24);
+  uint32_t &dst = g_pixels[y * g_width + x];
+  dst = (a == 0 || a == 255) ? (0xFF000000u | (color & 0xFFFFFFu))
+                              : blend_rgb(dst, color, a);
 }
 
 K q_clear(K color) {
   if (color->t != -KI)
     return krr((S) "type");
-  std::fill(g_pixels.begin(), g_pixels.end(), (uint32_t)color->i);
+  // Clear always lays down a fully opaque base layer - there's nothing
+  // beneath it in g_pixels to blend against, so any alpha byte is ignored.
+  uint32_t c = 0xFF000000u | ((uint32_t)color->i & 0xFFFFFFu);
+  std::fill(g_pixels.begin(), g_pixels.end(), c);
   return (K)0;
+}
+
+// Stamps one logical pixel as a g_scale x g_scale block of physical pixels.
+static inline void stamp_pixel(int x, int y, uint32_t color) {
+  for (int j = y; j < y + g_scale; ++j)
+    for (int i = x; i < x + g_scale; ++i)
+      set_pixel(i, j, color);
 }
 
 K q_pixel(K x, K y, K color) {
   if (x->t != -KI || y->t != -KI || color->t != -KI)
     return krr((S) "type");
-  int rx = x->i * g_scale, ry = y->i * g_scale;
-  uint32_t c = (uint32_t)color->i;
-  for (int j = ry; j < ry + g_scale; ++j)
-    for (int i = rx; i < rx + g_scale; ++i)
-      set_pixel(i, j, c);
+  stamp_pixel(x->i * g_scale, y->i * g_scale, (uint32_t)color->i);
   return (K)0;
+}
+
+// q_getpixel[x;y] - reads back the composited RGB already sitting in
+// g_pixels (no alpha byte - every stored pixel is forced fully opaque).
+// Mainly for tests/tooling to verify blending without a screenshot.
+K q_getpixel(K x, K y) {
+  if (x->t != -KI || y->t != -KI)
+    return krr((S) "type");
+  int rx = x->i * g_scale, ry = y->i * g_scale;
+  if ((unsigned)rx >= (unsigned)g_width || (unsigned)ry >= (unsigned)g_height)
+    return krr((S) "out of bounds");
+  return ki((int)(g_pixels[ry * g_width + rx] & 0xFFFFFFu));
 }
 
 K q_line(K x1, K y1, K x2, K y2, K color) {
@@ -455,7 +493,7 @@ K q_line(K x1, K y1, K x2, K y2, K color) {
   int dy = -std::abs(by - ay), sy = ay < by ? 1 : -1;
   int err = dx + dy;
   for (;;) {
-    set_pixel(ax, ay, c);
+    stamp_pixel(ax, ay, c);
     if (ax == bx && ay == by)
       break;
     int e2 = 2 * err;
@@ -495,6 +533,52 @@ K q_circle(K x, K y, K r, K color) {
     int hw = (int)std::sqrt((double)(radius * radius - dy2 * dy2));
     for (int dx2 = -hw; dx2 <= hw; ++dx2)
       set_pixel(cx + dx2, cy + dy2, c);
+  }
+  return (K)0;
+}
+
+// q_polygon[xs; ys; color] - filled simple polygon via scanline fill, in the
+// same logical coordinate space as the other primitives (scaled by g_scale).
+// Point-in-polygon per scanline uses the standard edge-crossing test, so
+// self-intersecting polygons fill by even-odd parity. This is what backs
+// .qvis.polygon and inspect.q's area-under-line shading.
+K q_polygon(K poly_x, K poly_y, K color) {
+  if (poly_x->t != KI || poly_y->t != KI || color->t != -KI)
+    return krr((S) "type");
+  J n = poly_x->n;
+  if (poly_y->n != n)
+    return krr((S) "length - xs and ys must be the same length");
+  if (n < 3)
+    return (K)0;
+
+  int *px = kI(poly_x), *py = kI(poly_y);
+  uint32_t c = (uint32_t)color->i;
+
+  int ymin = py[0], ymax = py[0];
+  for (J i = 1; i < n; ++i) {
+    ymin = std::min(ymin, py[i]);
+    ymax = std::max(ymax, py[i]);
+  }
+  ymin = std::max(ymin * g_scale, 0);
+  ymax = std::min(ymax * g_scale + g_scale - 1, g_height - 1);
+
+  std::vector<int> xints;
+  for (int y = ymin; y <= ymax; ++y) {
+    xints.clear();
+    for (J i = 0; i < n; ++i) {
+      J j = (i + 1) % n;
+      int y0 = py[i] * g_scale, y1 = py[j] * g_scale;
+      if (y0 == y1)
+        continue;
+      if ((y >= y0 && y < y1) || (y >= y1 && y < y0)) {
+        int x0 = px[i] * g_scale, x1 = px[j] * g_scale;
+        xints.push_back(x0 + (int)std::lround((double)(y - y0) * (x1 - x0) / (y1 - y0)));
+      }
+    }
+    std::sort(xints.begin(), xints.end());
+    for (size_t k = 0; k + 1 < xints.size(); k += 2)
+      for (int x = xints[k]; x < xints[k + 1]; ++x)
+        set_pixel(x, y, c);
   }
   return (K)0;
 }
@@ -594,10 +678,13 @@ K q_setpixels(K pixels) {
   if (pixels->n != (J)(logical_w * logical_h))
     return krr((S) "length - must equal width*height");
 
+  // Bulk frame blit, same as q_clear - full-buffer callers (Mandelbrot,
+  // Doom, Life, the finance heatmap...) build plain 0xRRGGBB colors with no
+  // alpha byte, so force opaque rather than reading it as "0 = invisible".
   uint32_t *src = (uint32_t *)kI(pixels);
   for (int y = 0; y < logical_h; ++y) {
     for (int x = 0; x < logical_w; ++x) {
-      uint32_t color = src[y * logical_w + x];
+      uint32_t color = 0xFF000000u | (src[y * logical_w + x] & 0xFFFFFFu);
       for (int sy = 0; sy < g_scale; ++sy) {
         for (int sx = 0; sx < g_scale; ++sx) {
           g_pixels[(y * g_scale + sy) * g_width + (x * g_scale + sx)] = color;
@@ -746,29 +833,14 @@ static void blend_surface(SDL_Surface *src, int dst_x, int dst_y) {
 
       uint32_t src_color = src_pixels[y * src_w + x];
       uint8_t a = (src_color >> 24) & 0xFF;
+      // Unlike set_pixel, a==0 here means the glyph rasterizer left this
+      // pixel fully transparent (background/anti-aliasing edge) - skip it
+      // rather than treating it as an opaque draw.
       if (a == 0)
         continue;
 
-      if (a == 255) {
-        g_pixels[target_y * g_width + target_x] = src_color;
-      } else {
-        uint32_t bg_color = g_pixels[target_y * g_width + target_x];
-
-        uint8_t r_src = (src_color >> 16) & 0xFF;
-        uint8_t g_src = (src_color >> 8) & 0xFF;
-        uint8_t b_src = src_color & 0xFF;
-
-        uint8_t r_bg = (bg_color >> 16) & 0xFF;
-        uint8_t g_bg = (bg_color >> 8) & 0xFF;
-        uint8_t b_bg = bg_color & 0xFF;
-
-        uint8_t r_out = (r_src * a + r_bg * (255 - a)) / 255;
-        uint8_t g_out = (g_src * a + g_bg * (255 - a)) / 255;
-        uint8_t b_out = (b_src * a + b_bg * (255 - a)) / 255;
-
-        g_pixels[target_y * g_width + target_x] =
-            (0xFF << 24) | (r_out << 16) | (g_out << 8) | b_out;
-      }
+      uint32_t &dst = g_pixels[target_y * g_width + target_x];
+      dst = (a == 255) ? src_color : blend_rgb(dst, src_color, a);
     }
   }
   SDL_DestroySurface(converted);
