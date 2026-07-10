@@ -145,9 +145,9 @@ if[()~@[key;`.qvis;()];
 .vis.putAll:{[st] $[(::)~.vis.STO; .[`.vis.STACK;(-1+count .vis.STACK;`state);:;st]; .vis.STO::st];}
 
 / edge-detected input from .qvis.poll, plus the inspector's own gestures:
-/ esc = back (quits at the root view), window close button = quit. Every
-/ other key is typeable - q/backspace go to the command bar (or the REPL
-/ editor's buffer), not navigation.
+/ esc = back (quits at the root view), window close button = quit. Typing
+/ only reaches the command bar once it's focused (see .vis.cmdIn) or inside
+/ the REPL editor's buffer - otherwise every key is left for the view.
 .vis.poll:{[]
   r:.qvis.poll[];
   r[`back]:`escape in r`new;
@@ -198,16 +198,23 @@ if[()~@[key;`.qvis;()];
   if[not .vis.RUN; :(::)];
   ev:.vis.poll[];
   if[ev`close; .vis.close[]; :(::)];
-  if[ev`back; $[count .vis.MENU; .vis.MENU:(); .vis.pop[]]];  / esc closes an open menu first
+  / esc: unfocus the bar if it's focused, else close an open menu, else back
+  if[ev`back;
+    $[.vis.BARACT; .vis.BARACT:0b;
+      count .vis.MENU; .vis.MENU:();
+      .vis.pop[]]];
   if[not count .vis.STACK; :(::)];
   / views with `capture (the REPL editor) own the keyboard; everyone else
-  / gets the one-line command bar, which eats its keys before the view sees them
+  / gets the one-line command bar - it only takes keys once focused (click it
+  / or press "q"), so plain keys otherwise reach the view underneath
   bar:not .vis.cap[];
   if[bar; ev:.vis.cmdIn ev];
   if[not .vis.RUN; :(::)];                  / a command may have closed
   if[not count .vis.STACK; :(::)];
   if[ev`click;
-    $[bar and (ev`my)>=.vis.H-25; .vis.cmdClick ev; .vis.hit[ev`mx;ev`my;0b]];
+    $[bar and (ev`my)>=.vis.H-25;
+      [.vis.BARACT:1b; .vis.cmdClick ev];
+      [.vis.BARACT:0b; .vis.hit[ev`mx;ev`my;0b]]];
     .vis.MENU:()];                          / any left click closes the menu
   if[ev`rclick;
     .vis.RCX:ev`mx; .vis.RCY:ev`my; .vis.MENU:();
@@ -1123,35 +1130,71 @@ if[()~@[key;`.qvis;()];
 / The result shows above the bar; the current view is then rebuilt from the
 / `refresh recipe in its state (a (constructor;args...) list applied with
 / value), so e.g. deleting a global shows up in .vis.ns immediately, and
-/ view dicts keep uniform top-level keys (see cmdRefresh). Left/right/home/end
-/ edit the bar only while it holds text; when empty they go to the view.
+/ view dicts keep uniform top-level keys (see cmdRefresh). The bar only owns
+/ the keyboard once focused (click it, or press "q" while unfocused) - until
+/ then every key (including "q") passes straight through to the view, so
+/ arrows/paging/etc. keep working undisturbed. Up/down browse .vis.HIST while
+/ focused instead of reaching the view.
 / ---------------------------------------------------------------------------
 .vis.CMD:""; .vis.CX:0;                     / bar text and cursor position
 .vis.RES:""; .vis.CRC:0; .vis.CFC:0;        / last result, key-repeat + blink counters
 .vis.CEK:`backspace`delete`left`right`home`end;
+.vis.BARACT:0b;                             / is the bar focused/capturing keys?
+.vis.HIST:(); .vis.HPOS:0N; .vis.HDRAFT:""; / past commands, browse index (0N=live line), saved draft
+.vis.HISTMAX:1000;                          / oldest entries drop once history exceeds this
 
-/ consume the bar's keys from the event dict and return the rest to the view
+/ consume the bar's keys from the event dict and return the rest to the view;
+/ unfocused, the bar is transparent except for "q" which claims the keyboard
 .vis.cmdIn:{[ev]
+  if[not .vis.BARACT;
+    if[`q in ev`new; .vis.BARACT:1b; ev[`new]:ev[`new] except `q];
+    :ev];
   cm:any .vis.CMDKS in ev`held;
   ins:$[cm or 10h<>type ev`text; ""; ev`text];
   if[cm and `v in ev`new; ins,:.qvis.clipboard[]];
   ins:(),raze {$[x="\t";"  ";x in "\n\r";" ";x]} each ins;
   if[count ins;
     .vis.CMD:(.vis.CX#.vis.CMD),ins,.vis.CX _ .vis.CMD;
-    .vis.CX+:count ins];
+    .vis.CX+:count ins;
+    .vis.HPOS:0N];                          / typing cancels history browsing
   ks:ev[`new] inter .vis.CEK;
   .vis.CRC:$[any .vis.CEK in ev`held; 1+.vis.CRC; 0];
   if[.vis.CRC>10; ks,:ev[`held] inter .vis.CEK];
-  if[0=count .vis.CMD; ks:ks inter `backspace`delete];  / empty bar: nav keys stay with the view
   .vis.cmdKey each ks;
+  hk:ev[`new] inter `up`down;
+  .vis.cmdHist each hk;
   if[(`return in ev`new) and count trim .vis.CMD;
     s:trim .vis.CMD;
+    .vis.hpush s;
     .vis.CMD:""; .vis.CX:0;
     $[("/"=first s) and 1<count s;
       .vis.RES:.vis.filter 1_s;
       [.vis.RES:.vis.cmdRun s; .vis.cmdRefresh[]]]];
-  ev[`new]:ev[`new] except ks,`return;
+  ev[`new]:ev[`new] except ks,hk,`return;
   ev}
+
+/ append s to the command history (skip an exact repeat of the last entry)
+/ and reset browsing state, ready for the next up-arrow to start from the end
+.vis.hpush:{[s]
+  if[(not count .vis.HIST) or not s~last .vis.HIST; .vis.HIST,:enlist s];
+  .vis.HIST:neg[.vis.HISTMAX]#.vis.HIST;
+  .vis.HPOS:0N; .vis.HDRAFT:"";}
+
+/ up/down through .vis.HIST, shell-style: the in-progress line is saved to
+/ .vis.HDRAFT on the first up-press and restored once down-arrow runs past
+/ the most recent entry
+.vis.cmdHist:{[k]
+  n:count .vis.HIST;
+  if[n=0; :(::)];
+  if[k=`up;
+    if[null .vis.HPOS; .vis.HDRAFT:.vis.CMD; .vis.HPOS:n];
+    .vis.HPOS:0|.vis.HPOS-1;
+    .vis.CMD:.vis.HIST .vis.HPOS];
+  if[(k=`down) and not null .vis.HPOS;
+    .vis.HPOS+:1;
+    .vis.CMD:$[.vis.HPOS>=n; .vis.HDRAFT; .vis.HIST .vis.HPOS];
+    if[.vis.HPOS>=n; .vis.HPOS:0N]];
+  .vis.CX:count .vis.CMD;}
 
 .vis.cmdKey:{[k]
   n:count .vis.CMD;
@@ -1218,12 +1261,14 @@ if[()~@[key;`.qvis;()];
   .qvis.rect[0;.vis.H-25;.vis.W;25;.vis.BG];  / opaque strip so view rows don't bleed through
   if[count .vis.RES;
     .vis.drawText[8;.vis.H-23;.vis.FONT_PROP;$["'"=first .vis.RES;.qvis.red;.qvis.gray];.vis.RES]];
-  .qvis.rect[0;.vis.H-13;.vis.W;13;.qvis.white];
-  .vis.drawText[4;.vis.H-10;.vis.FONT_MONO;.qvis.black;"q)"];
+  / dim, no cursor when unfocused - the bar isn't eating keys, so nothing
+  / should look like it's waiting for them (click it or press "q" to focus)
+  .qvis.rect[0;.vis.H-13;.vis.W;13;$[.vis.BARACT;.qvis.white;.vis.GRID]];
+  .vis.drawText[4;.vis.H-10;.vis.FONT_MONO;$[.vis.BARACT;.qvis.black;.qvis.gray];"q)"];
   maxc:(.vis.W-24) div .vis.MONOW;
   hoff:0|.vis.CX-maxc;                      / h-scroll so the cursor stays visible
-  .vis.drawText[18;.vis.H-10;.vis.FONT_MONO;.qvis.black;maxc sublist hoff _ .vis.CMD];
-  if[12>.vis.CFC mod 20;
+  .vis.drawText[18;.vis.H-10;.vis.FONT_MONO;$[.vis.BARACT;.qvis.black;.qvis.gray];maxc sublist hoff _ .vis.CMD];
+  if[.vis.BARACT and 12>.vis.CFC mod 20;
     .qvis.rect[18+.vis.textWidth[.vis.FONT_MONO; (.vis.CX-hoff) sublist (hoff _ .vis.CMD)];.vis.H-12;1;11;.qvis.black]];}
 
 / ---------------------------------------------------------------------------

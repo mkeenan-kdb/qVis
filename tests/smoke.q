@@ -206,6 +206,18 @@ ok["cmdKey del";  (enlist "b";0)~(.vis.CMD;.vis.CX)];
 ok["cmdKey end";  1=.vis.CX];
 .vis.CMD:""; .vis.CX:0;
 
+/ command bar: unfocused, it's transparent to every key except "q"
+.vis.BARACT:0b; .vis.CMD:"";
+cev:`new`held`click`mx`my`wheel`text!(enlist `up;0#`;0b;0;0;0;"");
+cev:.vis.cmdIn cev;
+ok["cmdIn unfocused passthrough"; `up in cev`new];
+ok["cmdIn unfocused no type";      ""~.vis.CMD];
+cev:`new`held`click`mx`my`wheel`text!(enlist `q;0#`;0b;0;0;0;"q");
+cev:.vis.cmdIn cev;
+ok["cmdIn q focuses"; .vis.BARACT];
+ok["cmdIn q eaten";   not `q in cev`new];
+ok["cmdIn q no type";  ""~.vis.CMD];      / the focusing "q" itself isn't inserted
+
 / command bar: full input path - typing then enter evaluates into .vis.RES
 cev:`new`held`click`mx`my`wheel`text!(0#`;0#`;0b;0;0;0;"1+1");
 cev:.vis.cmdIn cev;
@@ -215,6 +227,20 @@ cev:.vis.cmdIn cev;
 ok["cmdIn run";   (enlist "2")~.vis.RES];
 ok["cmdIn clear"; ""~.vis.CMD];
 ok["cmdIn eaten"; not `return in cev`new];
+
+/ command bar: up/down history, shell-style (draft preserved, wraps back to it)
+.vis.HIST:(); .vis.HPOS:0N; .vis.HDRAFT:""; .vis.BARACT:1b;
+cev:`new`held`click`mx`my`wheel`text!(0#`;0#`;0b;0;0;0;"6*7");
+cev:.vis.cmdIn cev; cev[`new]:enlist `return; cev[`text]:"";
+cev:.vis.cmdIn cev;                       / runs "6*7", pushes it to history
+.vis.CMD:"partial"; .vis.CX:7;
+cev:`new`held`click`mx`my`wheel`text!(enlist `up;0#`;0b;0;0;0;"");
+cev:.vis.cmdIn cev;
+ok["cmdHist up recalls";  "6*7"~.vis.CMD];
+cev:`new`held`click`mx`my`wheel`text!(enlist `down;0#`;0b;0;0;0;"");
+cev:.vis.cmdIn cev;
+ok["cmdHist down restores draft"; "partial"~.vis.CMD];
+.vis.CMD:""; .vis.CX:0; .vis.BARACT:0b;
 
 / view refresh recipes rebuild from live session state
 .vis.RUN:1b;                                / pretend the loop is on (no window needed)
