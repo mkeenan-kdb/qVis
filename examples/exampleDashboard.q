@@ -44,5 +44,5 @@ $[count e:getenv`QVIS; system"l ",e,"/inspect.q"; system"l inspect.q"];
 .vis.dash (
   (`plot;   {select time,price from .ex.feed[] where sym=`AAPL}; 0 0 1 1; 200);
   (`candle; {.ex.day `AAPL};                                     1 0 1 1; 5000);
-  (`bar;    {select sum size by sym from .ex.feed[]};             0 1 1 1; 500);
-  (`tab;    .ex.feed;                                             1 1 1 1; 200))
+  (`bar;    {select sum size by sym from .ex.feed[]};            0 1 1 1; 500);
+  (`tab;    .ex.feed;                                            1 1 1 1; 200))

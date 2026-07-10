@@ -45,7 +45,9 @@ if[()~@[key;`.qvis;()];
 .vis.SC:2;
 .vis.W:`int$(0.8*.vis.screen`w) div .vis.SC; /width is 80% of screen size
 .vis.H:`int$(0.8*.vis.screen`h) div .vis.SC; /height is 80% of screen size
-.vis.BOX:(56;24;.vis.W-72;.vis.H-60);        / default chart plot area (x0;y0;pw;ph)
+.vis.BOX:(56;24;.vis.W-72;.vis.H-60);        / default chart plot area (x0;y0;pw;ph);
+                                             / ph is recomputed in .vis.open once the
+                                             / real tick-label font height is known
 .vis.TBOX:(8;18;.vis.W-16;.vis.H-53);        / default table-browser box
 .vis.boxOr:{[st;dflt] $[`box in key st; st`box; dflt]}  / dashboard panels override this
 .vis.YLGUT:54;                               / gap reserved left of x0 for y-axis tick labels
@@ -56,6 +58,15 @@ if[()~@[key;`.qvis;()];
 .vis.TXTC:130;                               / wrap width (chars) in text views
 .vis.BG:658448i; .vis.GRID:2105376i; .vis.BORD:2764856i; /colors: background, grid, border
 .vis.SELC:2046556i;                          / selected-line highlight (muted blue)
+.vis.HOVER:.qvis.fade[50;.qvis.green];        / translucent row/panel/menu-item hover tint
+.vis.SHADOW:.qvis.fade[120;.qvis.black];      / translucent drop shadow behind floating overlays
+
+/ hoverIx[mx;my;x0;y0;w;rh;n] - index (0..n-1) of the row of height rh under
+/ (mx;my) within a w-wide column starting at (x0;y0), or -1 if the mouse is
+/ outside the block entirely (used to draw a hover highlight before content)
+.vis.hoverIx:{[mx;my;x0;y0;w;rh;n]
+  i:(my-y0) div rh;
+  $[(mx within (x0;x0+w-1)) and i within (0;n-1); i; -1]}
 .vis.CMDKS:`left_gui`right_gui`left_ctrl`right_ctrl`left_command`right_command`left_meta`right_meta`left_windows`right_windows;
 .vis.PAL:(.qvis.cyan;.qvis.green;.qvis.yellow;.qvis.magenta;.qvis.red;.qvis.white); /our palette 
 
@@ -89,6 +100,12 @@ if[()~@[key;`.qvis;()];
   .vis.FONT_PROP:.qvis.loadsysfont[`prop;8];
   .vis.FONT_MONO:.qvis.loadsysfont[`mono;8];
   if[.vis.FONT_MONO>=0; .vis.MONOW:first .qvis.textsize[.vis.FONT_MONO;"a"]];
+  / x-axis tick labels sit below the chart box, 4px under it, above the 25px
+  / command bar - reserve exactly enough room for the loaded font's real
+  / height (TTF fonts render taller than the old fixed 7px bitmap font, so a
+  / hardcoded gutter clipped their bottom under the command bar's repaint)
+  labelH:$[.vis.FONT_PROP>=0; last .qvis.textsize[.vis.FONT_PROP;"Ag"]; 7];
+  .vis.BOX:(56;24;.vis.W-72;.vis.H-(24+25+4+labelH));
   .vis.OZTS:@[get;`.z.ts;{[e](::)}];
   .vis.OT:system"t";
   .vis.RUN:1b;
@@ -161,17 +178,19 @@ if[()~@[key;`.qvis;()];
 / any left click, esc, or choosing an item.
 .vis.MENU:(); .vis.RCX:0; .vis.RCY:0;       / open menu + last right-click pos
 .vis.menu:{[items;acts] .vis.MENU:`x`y`items`acts!(.vis.RCX;.vis.RCY;items;acts);}
-.vis.menuDraw:{[]
+.vis.menuDraw:{[mx;my]
   if[not count .vis.MENU; :(::)];
   m:.vis.MENU; its:m`items;
   w:14+max .vis.textWidth[.vis.FONT_PROP;] each its; h:4+12*count its;
   x0:0|(.vis.W-w)&m`x; y0:0|(.vis.H-25-h)&m`y;  / keep clear of the command bar
+  .qvis.rect[x0+3;y0+3;w;h;.vis.SHADOW];        / drop shadow so the menu reads as floating
   .qvis.rect[x0;y0;w;h;.vis.BG];
   .qvis.line[x0;y0;x0+w;y0;.vis.BORD]; .qvis.line[x0;y0+h;x0+w;y0+h;.vis.BORD];
   .qvis.line[x0;y0;x0;y0+h;.vis.BORD]; .qvis.line[x0+w;y0;x0+w;y0+h;.vis.BORD];
-  .vis.menuItem[x0;y0;w]'[til count its;its;m`acts];}
-.vis.menuItem:{[x0;y0;w;i;s;a]
+  .vis.menuItem[x0;y0;w;mx;my]'[til count its;its;m`acts];}
+.vis.menuItem:{[x0;y0;w;mx;my;i;s;a]
   y:y0+3+12*i;
+  if[(mx within (x0;x0+w-1)) and my within (y-2;y+9); .qvis.rect[x0;y-2;w;12;.vis.HOVER]];
   .vis.drawText[x0+7;y;.vis.FONT_PROP;.qvis.white;s];
   .vis.spot[x0;y-2;w;12;{[a;e] .vis.MENU:(); a e}[a]];}
 
@@ -200,7 +219,7 @@ if[()~@[key;`.qvis;()];
   (last .vis.STACK)[`draw] ev;
   / re-test: a command may have pushed a different view this frame
   if[not .vis.cap[]; .vis.cmdDraw[]];
-  .vis.menuDraw[];
+  .vis.menuDraw[ev`mx;ev`my];
   .qvis.present[];}
 
 / breadcrumb trail; clicking a crumb pops back to that view
@@ -448,6 +467,8 @@ if[()~@[key;`.qvis;()];
   cs:c0 _ til nc;
   xs:x0+sums 0,-1_ws cs;
   keep:where (xs+ws cs)<x0+pw;               / draw only columns that fit
+  hv:.vis.hoverIx[ev`mx;ev`my;x0-4;y0+11;pw+8;10;m];
+  if[hv>=0; .qvis.rect[x0-4;y0+11+10*hv;pw+8;10;.vis.HOVER]];
   .vis.tabCol[st;off;y0]'[xs keep;(ws cs)keep;(st[`hdrs]cs)keep;(st[`cnames]cs)keep;(colz cs)keep];
   {[x0;y0;pw;st;off;i] .vis.spot[x0-4;y0+11+10*i;pw+8;10;.vis.tabRow[st;off+i]]}
     [x0;y0;pw;st;off] each til m;
@@ -553,6 +574,8 @@ if[()~@[key;`.qvis;()];
   .vis.drawText[430;18;.vis.FONT_PROP;.qvis.yellow;"type"]; .vis.drawText[490;18;.vis.FONT_PROP;.qvis.yellow;"count"];
   .vis.drawText[570;18;.vis.FONT_PROP;.qvis.yellow;"size"];
   shown:page sublist off _ rows;
+  hv:.vis.hoverIx[ev`mx;ev`my;4;29;630;10;count shown];
+  if[hv>=0; .qvis.rect[4;29+10*hv;630;10;.vis.HOVER]];
   .vis.nsRow'[til count shown;shown];
   .vis.drawText[8;.vis.H-35;.vis.FONT_PROP;.qvis.gray;
     (string n)," entries   click=open   esc=back/quit"];}
@@ -915,6 +938,8 @@ if[()~@[key;`.qvis;()];
 / are registered first and so lose the "last wins" hit-test in .vis.hit)
 .vis.dashPanelDraw:{[ev;pnl]
   ob:pnl`outer; ox:ob 0; oy:ob 1; ow:ob 2; oh:ob 3;
+  if[(ev[`mx] within (ox;ox+ow-1)) and ev[`my] within (oy;oy+oh-1);
+    .qvis.rect[ox;oy;ow;oh;.vis.HOVER]];   / tint the whole tile - hints it's clickable to zoom
   .qvis.line[ox;oy;ox+ow;oy;.vis.BORD]; .qvis.line[ox;oy+oh;ox+ow;oy+oh;.vis.BORD];
   .qvis.line[ox;oy;ox;oy+oh;.vis.BORD]; .qvis.line[ox+ow;oy;ox+ow;oy+oh;.vis.BORD];
   .vis.drawText[ox+3;oy+2;.vis.FONT_PROP;.qvis.gray;string pnl`kind];
@@ -1139,19 +1164,28 @@ if[()~@[key;`.qvis;()];
   if[(k=`delete) and .vis.CX<n;
     .vis.CMD:.vis.edDel[.vis.CMD;.vis.CX]];}
 
-/ evaluate one line, console rules: \\ exits, \cmd -> system, else value
+/ evaluate one line, console rules: \\ exits, \cmd -> system, else value.
+/ a table result (bare "trade", "select from t where ...", etc.) opens in the
+/ table browser instead of being squashed into an unreadable one-line string -
+/ .vis.tab already handles symbols, in-memory/splayed/partitioned values and
+/ keyed tables (unkeys them), so just hand the raw value to it
 .vis.cmdRun:{[s]
   s:trim s;
   if[s~"\\\\"; .vis.close[]; exit 0];
   r:@[{(0b;$["\\"=first x; system 1_x; value x])};s;{(1b;x)}];
-  $[first r; "'",last r; .vis.cmd1 last r]}
+  $[first r; "'",last r;
+    .Q.qt last r; [.vis.tab last r; ""];
+    .vis.cmd1 last r]}
 
 / one-line display of a result; big collections are sampled so a stray
-/ "select from bigtable" can't stall the frame loop building a giant string
+/ "select from bigtable" can't stall the frame loop building a giant string.
+/ a bare partitioned-table result (e.g. typing "trade" with no where-clause)
+/ can't be plain-sublisted - .Q.ind pages it the same way .vis.tabFetch does
 .vis.cmd1:{[r]
   if[(::)~r; :""];
   big:(0<=type r) and 1000<count r;
-  (.vis.TXTC sublist .Q.s1 $[big; 1000 sublist r; r]),$[big;"..";""]}
+  s:$[not big; r; 1b~.Q.qp r; .Q.ind[r;til 1000]; 1000 sublist r];
+  (.vis.TXTC sublist .Q.s1 s),$[big;"..";""]}
 
 / rebuild the current view after a command so session changes show at once;
 / scroll position survives (draw clamps it if the data shrank). The recipe
