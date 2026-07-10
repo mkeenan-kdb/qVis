@@ -3,7 +3,6 @@ build/
 *.so
 *.o
 .DS_Store
-color/
 db/
 future_ideas.md
 .cache/
