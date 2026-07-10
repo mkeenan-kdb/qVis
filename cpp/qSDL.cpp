@@ -269,6 +269,8 @@ K q_init(K w, K h, K s) {
     SDL_SetTextureBlendMode(g_texture, SDL_BLENDMODE_BLEND);
 
     SDL_SetWindowSize(g_window, g_width, g_height);
+    SDL_SetWindowAspectRatio(g_window, (float)g_width / g_height,
+                             (float)g_width / g_height);
     SDL_ShowWindow(g_window);
     SDL_RaiseWindow(g_window);
     SDL_RenderClear(g_renderer);
@@ -299,6 +301,9 @@ K q_init(K w, K h, K s) {
                               SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE);
   if (!g_window)
     return krr((S) "window creation failed");
+
+  SDL_SetWindowAspectRatio(g_window, (float)g_width / g_height,
+                           (float)g_width / g_height);
 
   g_renderer = SDL_CreateRenderer(g_window, nullptr);
   if (!g_renderer)

@@ -2,14 +2,17 @@
 
 **qVis** is a graphical engine for [kdb+/q](https://kx.com) that opens a 60fps, resizable SDL3 window directly from the q REPL. It provides immediate-mode drawing primitives (pixels, lines, rectangles, circles, polygons, text), true TrueType/OpenType text rendering via SDL_ttf, translucent/alpha-blended fills, bulk pixel blasting via `setpixels`, and edge-detected keyboard and mouse input - all without blocking the q session.
 
-On top of the engine lives **`inspect.q`**, a full visual workspace inspector. Load it into any running q process and you can immediately browse, sort, and filter tables of any size, explore namespaces, plot line/scatter/histogram/candlestick/bar charts, watch live-updating views of a streaming table, inspect anything through right-click context menus, watch memory in real-time, and run q code in a syntax-highlighted editor - all in the same window, all while the session stays live.
+> **`qVis.q`** exposes the c++ functions defined in **cpp/qSDL.cpp** to q as the `.qvis` namespace - everything else in this repository is built ontop of **qVis**
 
-The repository also ships a collection of standalone graphics programs (`examples/`) and two playable games (`game/`) written entirely in q, showing what the engine can do.
+**`inspect.q`** is a full visual workspace inspector for kdb+. Load it into any running q process and you can immediately browse, sort, and filter tables of any size, explore namespaces, plot line/scatter/histogram/candlestick/bar charts, watch live-updating views of a streaming table, inspect anything through right-click context menus, watch memory in real-time, build custom dashboards, and run q code in a syntax-highlighted editor - all in the same window, all while the session stays live.
+
+The repository also ships a collection of other standalone graphics programs (`examples/`) and two playable games (`game/`) written entirely in q, showing what the engine can do, all built ontop of **qVis**.
 
 ---
 
 ## Contents
 
+- [Quickstart guide](#quickstart)
 - [What does it look like?](#-what-does-it-look-like)
 - [Dependencies & Prerequisites](#-dependencies--prerequisites)
 - [Build & Installation](#-build--installation)
@@ -22,6 +25,22 @@ The repository also ships a collection of standalone graphics programs (`example
 - [File Structure](#-file-structure)
 
 ---
+
+## Quickstart
+
+**Supported OS:** macOS and Linux.
+
+**1. Install dependencies (SDL3, SDL3_ttf, and CMake):**
+- **macOS:** `brew install sdl3 sdl3_ttf cmake`
+- **Linux (Ubuntu/Debian):** `sudo apt install libsdl3-dev libsdl3-ttf-dev cmake build-essential`
+
+**2. Clone, build, and run:**
+```sh
+git clone https://github.com/mkeenan-kdb/qVis.git
+cd qVis
+./build.sh
+q demo.q
+```
 
 ## 📸 What does it look like?
 

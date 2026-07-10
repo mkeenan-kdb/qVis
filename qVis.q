@@ -12,26 +12,26 @@
 // ---------------------------------------------------------------------------
 LIB:{`$":",$[count e:getenv`QVIS; e,"/qSDL"; "./qSDL"]}[]
 
-c_init:     LIB 2: (`q_init;     3)   // width; height; scale
-c_shutdown: LIB 2: (`q_shutdown; 1)   // ::
-c_clear:    LIB 2: (`q_clear;    1)   // color
-c_pixel:    LIB 2: (`q_pixel;    3)   // x; y; color
-c_line:     LIB 2: (`q_line;     5)   // x1; y1; x2; y2; color
-c_rect:     LIB 2: (`q_rect;     5)   // x; y; w; h; color
-c_circle:   LIB 2: (`q_circle;   4)   // x; y; r; color
-c_polygon:  LIB 2: (`q_polygon;  3)   // xs; ys; color
-c_getpixel: LIB 2: (`q_getpixel; 2)   // x; y -> RGB int
-c_present:  LIB 2: (`q_present;  1)   // ::
-c_setpixels:LIB 2: (`q_setpixels;1)   // int-list of width*height ARGB values
-c_text:     LIB 2: (`q_text;     5)   // x; y; scale; color; string
-c_keys:     LIB 2: (`q_keys;     1)   // ::
-c_mouse:    LIB 2: (`q_mouse;    1)   // ::
-c_textin:   LIB 2: (`q_textin;   1)   // ::
-c_clipboard:LIB 2: (`q_clipboard;1)   // ::
-c_setclip:  LIB 2: (`q_setclip;  1)   // string
-c_loadfont: LIB 2: (`q_load_font; 2)  // path; pt_size -> font_id
-c_drawtext: LIB 2: (`q_draw_text; 5)  // x; y; font_id; color; string
-c_textsize: LIB 2: (`q_text_size; 2)  // font_id; string -> (width; height)
+c_init:     LIB 2: (`q_init;     3)        // width; height; scale
+c_shutdown: LIB 2: (`q_shutdown; 1)        // ::
+c_clear:    LIB 2: (`q_clear;    1)        // color
+c_pixel:    LIB 2: (`q_pixel;    3)        // x; y; color
+c_line:     LIB 2: (`q_line;     5)        // x1; y1; x2; y2; color
+c_rect:     LIB 2: (`q_rect;     5)        // x; y; w; h; color
+c_circle:   LIB 2: (`q_circle;   4)        // x; y; r; color
+c_polygon:  LIB 2: (`q_polygon;  3)        // xs; ys; color
+c_getpixel: LIB 2: (`q_getpixel; 2)        // x; y -> RGB int
+c_present:  LIB 2: (`q_present;  1)        // ::
+c_setpixels:LIB 2: (`q_setpixels;1)        // int-list of width*height ARGB values
+c_text:     LIB 2: (`q_text;     5)        // x; y; scale; color; string
+c_keys:     LIB 2: (`q_keys;     1)        // ::
+c_mouse:    LIB 2: (`q_mouse;    1)        // ::
+c_textin:   LIB 2: (`q_textin;   1)        // ::
+c_clipboard:LIB 2: (`q_clipboard;1)        // ::
+c_setclip:  LIB 2: (`q_setclip;  1)        // string
+c_loadfont: LIB 2: (`q_load_font; 2)       // path; pt_size -> font_id
+c_drawtext: LIB 2: (`q_draw_text; 5)       // x; y; font_id; color; string
+c_textsize: LIB 2: (`q_text_size; 2)       // font_id; string -> (width; height)
 c_displaysize:LIB 2: (`q_display_size; 1)  // :: -> (w; h)
 // ---------------------------------------------------------------------------
 // Colors - ARGB 32-bit integers (0xAARRGGBB).

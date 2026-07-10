@@ -6,3 +6,5 @@ build/
 color/
 db/
 future_ideas.md
+.cache/
+.clangd/

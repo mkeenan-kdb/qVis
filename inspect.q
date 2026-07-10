@@ -689,8 +689,8 @@ if[()~@[key;`.qvis;()];
   / crosshair + nearest-point readout per series while hovering the plot area
   mx:ev`mx; my:ev`my;
   if[(mx within (x0;x0+pw-1)) and my within (y0;y0+ph-1);
-    .qvis.line[mx;y0;mx;y0+ph-1;.vis.BORD];
-    .qvis.line[x0;my;x0+pw-1;my;.vis.BORD];
+    .qvis.line[mx;y0;mx;y0+ph-1;.qvis.fade[80;.qvis.red]];
+    .qvis.line[x0;my;x0+pw-1;my;.qvis.fade[80;.qvis.red]];
     xv:st[`xlo]+(st[`xhi]-st`xlo)*(mx-x0)%pw-1;
     tx:(x0+pw-90)&mx+6;
     .vis.drawText[tx;y0+2;.vis.FONT_PROP;.qvis.gray;.vis.fmtx[st`xt;st`xlo;st`xhi;xv]];
@@ -754,8 +754,8 @@ if[()~@[key;`.qvis;()];
   / crosshair + data-space readout while the mouse is over the plot area
   mx:ev`mx; my:ev`my;
   if[(mx within (x0;x0+pw-1)) and my within (y0;y0+ph-1);
-    .qvis.line[mx;y0;mx;y0+ph-1;.vis.BORD];
-    .qvis.line[x0;my;x0+pw-1;my;.vis.BORD];
+    .qvis.line[mx;y0;mx;y0+ph-1;.qvis.fade[80;.qvis.red]];
+    .qvis.line[x0;my;x0+pw-1;my;.qvis.fade[80;.qvis.red]];
     xv:xlo+(xhi-xlo)*(mx-x0)%pw-1; yv:ylo+(yhi-ylo)*((y0+ph-1)-my)%ph-1;
     s:(.vis.fmtx[xt;xlo;xhi;xv]),", ",.vis.fmtnum yv;
     w:.vis.textWidth[.vis.FONT_PROP;s];
@@ -800,8 +800,8 @@ if[()~@[key;`.qvis;()];
   / crosshair + data-space readout while the mouse is over the plot area
   mx:ev`mx; my:ev`my;
   if[(mx within (x0;x0+pw-1)) and my within (y0;y0+ph-1);
-    .qvis.line[mx;y0;mx;y0+ph-1;.vis.BORD];
-    .qvis.line[x0;my;x0+pw-1;my;.vis.BORD];
+    .qvis.line[mx;y0;mx;y0+ph-1;.qvis.fade[80;.qvis.red]];
+    .qvis.line[x0;my;x0+pw-1;my;.qvis.fade[80;.qvis.red]];
     xv:st[`xlo]+(st[`xhi]-st`xlo)*(mx-x0)%pw-1;
     yv:lo+(hi-lo)*((y0+ph-1)-my)%ph-1;
     bw:pw div n;
