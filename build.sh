@@ -7,3 +7,11 @@ cmake --build build
 rm -f qSDL.so
 cp build/qSDL.so .
 
+
+echo ""
+echo "================================================================="
+echo "Build successful! qSDL.so is ready."
+echo ""
+echo "To run qVis from ANY directory, add this to your ~/.zshrc, ~/.bashrc, etc.:"
+echo "  export QVIS=\"\$(pwd)\""
+echo "================================================================="

@@ -32,6 +32,7 @@ c_setclip:  LIB 2: (`q_setclip;  1)        // string
 c_loadfont: LIB 2: (`q_load_font; 2)       // path; pt_size -> font_id
 c_drawtext: LIB 2: (`q_draw_text; 5)       // x; y; font_id; color; string
 c_textsize: LIB 2: (`q_text_size; 2)       // font_id; string -> (width; height)
+c_textinkbox:LIB 2: (`q_text_ink_box;2)    // font_id; string -> (offsetX;offsetY;width;height)
 c_displaysize:LIB 2: (`q_display_size; 1)  // :: -> (w; h)
 // ---------------------------------------------------------------------------
 // Colors - ARGB 32-bit integers (0xAARRGGBB).
@@ -248,6 +249,18 @@ drawtext: { [x; y; font_id; color; str] c_drawtext[`int$x; `int$y; `int$font_id;
 //   str     - string/char vector
 //   Returns a 2-item int list (width; height) of the text bounds in pixels.
 textsize: { [font_id; str] c_textsize[`int$font_id; $[(type str)=-10h; enlist str; str]] }
+
+// textinkbox[font_id; str]
+//   font_id - integer font id
+//   str     - string/char vector
+//   Returns a 4-item int list (offsetX; offsetY; width; height): the tight
+//   bounding box of actually-inked pixels, relative to the (x,y) anchor
+//   passed to drawtext[]. textsize[] returns the font's full line metrics
+//   (ascent+descent+leading), which is usually taller than the visible
+//   glyphs - e.g. a string with no descenders leaves dead space below the
+//   letters. Use textinkbox[] instead when you need a pixel-accurate
+//   collision box, e.g. for bouncing text off a window edge.
+textinkbox: { [font_id; str] c_textinkbox[`int$font_id; $[(type str)=-10h; enlist str; str]] }
 
 // ---------------------------------------------------------------------------
 // Edge-detected input - poll[] wraps keyz[]/mouse[] and diffs against the

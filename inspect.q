@@ -43,8 +43,8 @@ if[()~@[key;`.qvis;()];
 / ---------------------------------------------------------------------------
 .vis.screen:.qvis.displaysize[];
 .vis.SC:2;
-.vis.W:`int$(0.8*.vis.screen`w) div .vis.SC; /width is 80% of screen size
-.vis.H:`int$(0.8*.vis.screen`h) div .vis.SC; /height is 80% of screen size
+.vis.W:`int$(0.9*.vis.screen`w) div .vis.SC; /width is 80% of screen size
+.vis.H:`int$(0.9*.vis.screen`h) div .vis.SC; /height is 80% of screen size
 .vis.BOX:(56;24;.vis.W-72;.vis.H-60);        / default chart plot area (x0;y0;pw;ph);
                                              / ph is recomputed in .vis.open once the
                                              / real tick-label font height is known
@@ -58,8 +58,8 @@ if[()~@[key;`.qvis;()];
 .vis.TXTC:130;                               / wrap width (chars) in text views
 .vis.BG:658448i; .vis.GRID:2105376i; .vis.BORD:2764856i; /colors: background, grid, border
 .vis.SELC:2046556i;                          / selected-line highlight (muted blue)
-.vis.HOVER:.qvis.fade[50;.qvis.green];        / translucent row/panel/menu-item hover tint
-.vis.SHADOW:.qvis.fade[120;.qvis.black];      / translucent drop shadow behind floating overlays
+.vis.HOVER:.qvis.fade[50;.qvis.green];       / translucent row/panel/menu-item hover tint
+.vis.SHADOW:.qvis.fade[120;.qvis.black];     / translucent drop shadow behind floating overlays
 
 / hoverIx[mx;my;x0;y0;w;rh;n] - index (0..n-1) of the row of height rh under
 / (mx;my) within a w-wide column starting at (x0;y0), or -1 if the mouse is

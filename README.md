@@ -1,26 +1,22 @@
 # qVis & .vis Inspector
 
+![Full Demo](gifs/Full_Demo_CC.gif)
+
 **qVis** is a graphical engine for [kdb+/q](https://kx.com) that opens a 60fps, resizable SDL3 window directly from the q REPL. It provides immediate-mode drawing primitives (pixels, lines, rectangles, circles, polygons, text), true TrueType/OpenType text rendering via SDL_ttf, translucent/alpha-blended fills, bulk pixel blasting via `setpixels`, and edge-detected keyboard and mouse input - all without blocking the q session.
 
 > **`qVis.q`** exposes the c++ functions defined in **cpp/qSDL.cpp** to q as the `.qvis` namespace - everything else in this repository is built ontop of **qVis**
 
 **`inspect.q`** is a full visual workspace inspector for kdb+. Load it into any running q process and you can immediately browse, sort, and filter tables of any size, explore namespaces, plot line/scatter/histogram/candlestick/bar charts, watch live-updating views of a streaming table, inspect anything through right-click context menus, watch memory in real-time, build custom dashboards, and run q code in a syntax-highlighted editor - all in the same window, all while the session stays live.
 
-The repository also ships a collection of other standalone graphics programs (`examples/`) and two playable games (`game/`) written entirely in q, showing what the engine can do, all built ontop of **qVis**.
-
 ---
 
 ## Contents
 
-- [Quickstart guide](#quickstart)
-- [What does it look like?](#-what-does-it-look-like)
-- [Dependencies & Prerequisites](#-dependencies--prerequisites)
-- [Build & Installation](#-build--installation)
-- [Getting Started](#-getting-started)
-- [The .vis Workspace Inspector](#-the-vis-workspace-inspector)
+- [Quickstart](#quickstart)
 - [Guided Tour (demo.q)](#-guided-tour-demoq)
-- [Interactive Games](#-interactive-games-my-kids-strongly-suggested-this-developmental-avenue)
-- [Showcase Examples](#-showcase-examples-examples)
+- [The .vis Workspace Inspector](#-the-vis-workspace-inspector)
+- [Using the qVis Engine](#-using-the-qvis-engine)
+- [Showcase Examples & Games](#-showcase-examples--games)
 - [API Reference](#-api-reference)
 - [File Structure](#-file-structure)
 
@@ -42,80 +38,53 @@ cd qVis
 q demo.q
 ```
 
-## 📸 What does it look like?
+---
 
-### Full Demo
-Memory monitor, namespace explorer, partitioned database view, live REPL, and interactive games — all running inside a live q session.
-![Full Demo](gifs/DemoVid.gif)
+## 🎯 Guided Tour (`demo.q`)
 
-### Workspace Inspector (`inspect.q`)
-Browse tables, namespaces, partitioned databases, memory, and charts - all from a single window loaded into your live q session.
-![Visual Workspace Inspector](gifs/InspectDemo.gif)
+`demo.q` is the fastest way to see everything. It builds a realistic demo database and in-memory dataset, then prints a numbered menu. Type `demo N` at the q prompt to run any entry:
 
-### Graphics Examples
-A sample of what you can build on the `qVis` engine:
+```sh
+q demo.q
+```
 
-| Program | Description | Preview |
-| :--- | :--- | :--- |
-| **Interactive Dashboard**<br>[examples/exampleDashboardRaw.q](examples/exampleDashboardRaw.q) | Real-time streaming financial chart with interactive mouse tracking and custom indicators. See [examples/exampleDashboard.q](examples/exampleDashboard.q) for the same idea built on `inspect.q`'s `.vis.dash`. | ![Interactive Dashboard](gifs/DashDemo.gif) |
-| **Doom-Style Raycaster**<br>[examples/exampleDoom.q](examples/exampleDoom.q) | Wolfenstein-3D style 3D maze rendering with textures, collision detection, and movement. | ![Doom Style](gifs/DoomDemo.gif) |
-| **Interactive Ray Tracer**<br>[examples/exampleRay.q](examples/exampleRay.q) | CPU ray tracer with shadows, sphere intersections, light sources, and camera rotation. | ![Ray Tracer](gifs/RayDemo.gif) |
-| **Mandelbrot Explorer**<br>[examples/exampleMandelbrot.q](examples/exampleMandelbrot.q) | Fractal explorer with WASD panning and dynamic zoom (R/F). | ![Mandelbrot](gifs/MandelDemo.gif) |
-| **Conway's Game of Life**<br>[examples/exampleLife.q](examples/exampleLife.q) | 1920x1080 cellular automaton, fully vectorised in native q. | ![Game of Life](gifs/LifeDemo.gif) |
-| **Water Ripple Interference**<br>[examples/exampleRipple.q](examples/exampleRipple.q) | Two-dimensional wave-equation solver showing ripple propagation and interference. | ![Water Ripple](gifs/RippleDemo.gif) |
-| **Bouncing Ball**<br>[examples/exampleBounce.q](examples/exampleBounce.q) | Simple gravity physics using the basic drawing primitives, with a translucent alpha-blended motion trail. | ![Bouncing Ball](gifs/BounceDemo.gif) |
-| **Plasma Wave Effect**<br>[examples/exampleAnimation.q](examples/exampleAnimation.q) | Sine-wave plasma computed in q and blasted to the canvas via `setpixels`. | ![Plasma Effect](gifs/PlasmaDemo.gif) |
-| **Text Rendering**<br>[examples/exampleText.q](examples/exampleText.q) | Built-in 5x7 bitmap font demo: scaling, marquee scrolling, and blinking text. | ![Text Rendering](gifs/TextDemo.gif) |
+The dataset includes:
+- `trade` - a 1M-row date-partitioned tick table with random-walk prices (six symbols, ten partitions)
+- `daily` - 250 days of OHLC bars per symbol
+- `sensors` - a day of 30-second sensor readings (temperature, pressure, vibration)
+- `alltypes` - a table with one column of every common q type
+- `returns`, `xs`, `ys` - numeric vectors for histogram and scatter plots
+- `.stats` - a small namespace with functions and config to explore with `.vis.ns`
+
+```
+  demo 1   intraday price walk (partitioned query)    .vis.plot select time,price from trade where date=max date,sym=`AAPL
+  demo 2   multi-series line plot, one per symbol     .vis.plot flip exec close by sym from daily
+  demo 3   table plot with a time axis                .vis.plot sensors
+  demo 4   histogram - normal returns                 .vis.hist[returns;60]
+  demo 5   scatter - correlated pairs                 .vis.scatter[xs;ys]
+  demo 6   table browser - 1M-row partitioned trade   .vis.tab `trade
+  demo 7   table browser - every q column type        .vis.tab alltypes
+  demo 8   partitioned-database overview              .vis.db[]
+  demo 9   namespace explorer (drill into .stats)     .vis.ns[]
+  demo 10  live memory monitor                        .vis.mem[]
+  demo 11  multiline q editor/REPL                    .vis.repl[]
+  demo 12  OHLC candlestick - AAPL daily bars         .vis.candle select from daily where sym=`AAPL
+  demo 13  bar chart - total volume by symbol         {.vis.bar[key x;value x]} exec sum volume by sym from daily
+  demo 14  live watch - tail of trade, 1s refresh     .vis.watch[`trade;1000]
+  demo 15  LIVE candlestick - random-walk feed        .vis.watchAs[.demo.feed;250;`candle]
+  demo 16  LIVE table tail - graphical tail -f        .vis.watchAs[.demo.feed;250;`tab]
+  demo 17  dashboard - plot/candle/bar/tab tiled      .vis.dash (...)
+```
+
+The database is only built when `db/` is absent. Run `rm -rf db` and rerun `demo.q` to regenerate it.
 
 ---
 
-## ⚙️ Dependencies & Prerequisites
+## 🔍 The .vis Workspace Inspector
 
-- **kdb+/q** - version 3 or later (e.g. the free 64-bit Personal Edition from [kx.com](https://kx.com))
-- **SDL3** - Simple DirectMedia Layer v3 (`brew install sdl3` on macOS, or your system package manager)
-- **SDL3_ttf** - TrueType/OpenType text rendering (`brew install sdl3_ttf` on macOS, or your system package manager)
-- **CMake** - v3.20 or later
-- **C++20 compiler** - Clang, GCC, or MSVC
+`inspect.q` is a self-contained interactive GUI loaded into a live q session. Every view runs in the same 33ms timer loop, so data in the window reflects the current state of the session. All views share a navigation stack: clicking drills down, `Esc` goes back. The window opens at 80% of your display size and is freely resizable by dragging its edges - the canvas is letterboxed/pillarboxed to keep its aspect ratio rather than stretching.
 
----
-
-## 🚀 Build & Installation
-
-Clone the repository and build the shared library from the repo root:
-
-```sh
-./build.sh
-```
-
-This compiles the C++ SDL3 wrapper and copies `qSDL.so` to the repo root. You must run `q` from this directory, or export `QVIS` so the loader can find `qVis.q` and `qSDL.so` from anywhere:
-
-```sh
-export QVIS=/path/to/qVis
-```
-
----
-
-## 🏃 Getting Started
-
-### Using the drawing engine (`qVis.q`)
-
-Load `qVis.q` and open a window. All drawing functions live under `.qvis`, so nothing is added to the root namespace:
-
-```sh
-q qVis.q
-```
-
-```q
-.qvis.init[320; 240; 2]       / open a 320x240 window at 2x scale
-.qvis.clear[.qvis.black]      / fill with black
-.qvis.circle[160; 120; 80; .qvis.red]
-.qvis.present[]               / push the frame to screen
-.qvis.shutdown[]              / close the window
-```
-
-The window is freely resizable by dragging its edges - the `320x240` canvas is always letterboxed/pillarboxed to fill it without distortion, so drawing coordinates never need to change.
-
-### Using the workspace inspector (`inspect.q`)
+### Getting Started
 
 Run from the repo root:
 
@@ -147,12 +116,6 @@ Then call any inspector function:
                                / tile several live views into one window
 .vis.repl[]                   / open the multiline q editor
 ```
-
----
-
-## 🔍 The .vis Workspace Inspector
-
-`inspect.q` is a self-contained interactive GUI loaded into a live q session. Every view runs in the same 33ms timer loop, so data in the window reflects the current state of the session. All views share a navigation stack: clicking drills down, `Esc` goes back. The window opens at 80% of your display size and is freely resizable by dragging its edges - the canvas is letterboxed/pillarboxed to keep its aspect ratio rather than stretching.
 
 ### Table Browser (`.vis.tab`)
 Browses any table - in-memory, keyed, splayed, or date-partitioned - without loading it fully into RAM. Rows are fetched lazily so even billion-row HDB tables are usable. Click a column header to sort ascending or descending (the sort index is kept in memory; the table is never copied - sorts over `.vis.MAXSORT` rows are refused to avoid OOM). Click a row to see the full record with all columns untruncated. Right-click a cell for a context menu: copy the value, filter the table by it, plot the column, or inspect the row. Type `/where-clause` (e.g. `/price>100`) at the command bar to open a filtered view - `Esc` clears it. Use `Left`/`Right` arrow keys to page through columns that do not fit the window.
@@ -232,94 +195,50 @@ Globals you can set at any time to trade safety/speed for coverage:
 
 ---
 
-## 🎯 Guided Tour (`demo.q`)
+## 🎨 Using the qVis Engine
 
-`demo.q` is the fastest way to see everything. It builds a realistic demo database and in-memory dataset, then prints a numbered menu. Type `demo N` at the q prompt to run any entry:
+Load `qVis.q` and open a window. All drawing functions live under `.qvis`, so nothing is added to the root namespace:
 
 ```sh
-q demo.q
+q qVis.q
 ```
 
-The dataset includes:
-- `trade` - a 1M-row date-partitioned tick table with random-walk prices (six symbols, ten partitions)
-- `daily` - 250 days of OHLC bars per symbol
-- `sensors` - a day of 30-second sensor readings (temperature, pressure, vibration)
-- `alltypes` - a table with one column of every common q type
-- `returns`, `xs`, `ys` - numeric vectors for histogram and scatter plots
-- `.stats` - a small namespace with functions and config to explore with `.vis.ns`
-
-```
-  demo 1   intraday price walk (partitioned query)    .vis.plot select time,price from trade where date=max date,sym=`AAPL
-  demo 2   multi-series line plot, one per symbol     .vis.plot flip exec close by sym from daily
-  demo 3   table plot with a time axis                .vis.plot sensors
-  demo 4   histogram - normal returns                 .vis.hist[returns;60]
-  demo 5   scatter - correlated pairs                 .vis.scatter[xs;ys]
-  demo 6   table browser - 1M-row partitioned trade   .vis.tab `trade
-  demo 7   table browser - every q column type        .vis.tab alltypes
-  demo 8   partitioned-database overview              .vis.db[]
-  demo 9   namespace explorer (drill into .stats)     .vis.ns[]
-  demo 10  live memory monitor                        .vis.mem[]
-  demo 11  multiline q editor/REPL                    .vis.repl[]
-  demo 12  OHLC candlestick - AAPL daily bars         .vis.candle select from daily where sym=`AAPL
-  demo 13  bar chart - total volume by symbol         {.vis.bar[key x;value x]} exec sum volume by sym from daily
-  demo 14  live watch - tail of trade, 1s refresh     .vis.watch[`trade;1000]
-  demo 15  LIVE candlestick - random-walk feed        .vis.watchAs[.demo.feed;250;`candle]
-  demo 16  LIVE table tail - graphical tail -f        .vis.watchAs[.demo.feed;250;`tab]
-  demo 17  dashboard - plot/candle/bar/tab tiled      .vis.dash (...)
+```q
+.qvis.init[320; 240; 2]       / open a 320x240 window at 2x scale
+.qvis.clear[.qvis.black]      / fill with black
+.qvis.circle[160; 120; 80; .qvis.red]
+.qvis.present[]               / push the frame to screen
+.qvis.shutdown[]              / close the window
 ```
 
-The database is only built when `db/` is absent. Run `rm -rf db` and rerun `demo.q` to regenerate it.
+The window is freely resizable by dragging its edges - the `320x240` canvas is always letterboxed/pillarboxed to fill it without distortion, so drawing coordinates never need to change.
 
 ---
 
-## 🎮 Interactive Games (My kids strongly suggested this developmental avenue)
+## 📸 Showcase Examples & Games
 
-Two games written entirely in q, demonstrating real-time rendering and input handling:
-
-### Touchdown Run (`game/football.q`)
-A 3D arcade runner with a perspective camera, stick-figure players, and Verlet ragdoll physics. You auto-run downfield - dodge the defenders to reach the endzone. Get tackled and the ragdoll physics fling you into space.
-
-```sh
-q game/football.q
-```
-
-Controls: `A`/`D` or `Left`/`Right` to dodge; `R` to restart; `Esc` to quit.
-
-### Demon Arena (`game/fps.q`)
-A first-person shooter built on a heightmap raycaster. Per-pixel floor and ceiling casting via `setpixels`, variable-height cells with climbable stairs and a raised platform, and pixel-art demon sprites.
-
-```sh
-q game/fps.q
-```
-
-Controls: `W`/`S` or `Up`/`Down` to walk; `A`/`D` to strafe; `Q`/`E` or `Left`/`Right` to turn; `Space` or left-click to fire; `R` to restart; `Esc` to quit.
-
----
-
-## 📂 Showcase Examples (`examples/`)
-
-Standalone programs demonstrating different aspects of the engine:
-
-| File | Description |
-| :--- | :--- |
-| `exampleAnimation.q` | Sine-wave plasma generator pushed to the screen via `setpixels`. |
-| `exampleBoids.q` | Craig Reynolds' Boids flocking algorithm (separation, alignment, cohesion) in vectorised q. |
-| `exampleBounce.q` | Gravity and velocity integration using basic drawing primitives, with a translucent motion trail via alpha blending. |
-| `exampleDashboard.q` | The same streaming market-data dashboard as `exampleDashboardRaw.q`, built with `inspect.q`'s `.vis.dash` in about a tenth of the code. |
-| `exampleDashboardRaw.q` | Streaming multi-symbol market-data dashboard: price chart, volume bars, clickable symbol list and session stats, built directly on `.qvis` (no `inspect.q`). |
-| `exampleDoom.q` | Standalone raycasting maze (same core engine as `game/fps.q`). |
-| `exampleFinance.q` | Live-streaming limit order book and trade price charts. |
-| `exampleLife.q` | Conway's Game of Life on a high-resolution grid, fully vectorised. |
-| `exampleMandelbrot.q` | Interactive Mandelbrot set. `W/A/S/D` to pan, `R`/`F` to zoom. |
-| `exampleRay.q` | CPU ray tracer with shadows, reflections, and camera rotation. |
-| `exampleRipple.q` | 2D wave-equation solver showing ripple propagation and interference. |
-| `exampleText.q` | Bitmap font showcase: scaling, marquee scrolling, and colour animation. |
-
-Run any example from the repo root:
+A sample of what you can build on the `qVis` engine (including two games that my kids strongly suggested as a developmental avenue). Run any example from the repo root:
 
 ```sh
 q examples/exampleDashboard.q
 ```
+
+| Program | Description | Preview |
+| :--- | :--- | :--- |
+| **Workspace Inspector**<br>[inspect.q](inspect.q) | Browse tables, namespaces, memory, and charts - loaded into your live q session. | <details><summary>View</summary><img src="gifs/InspectDemo.gif" alt="Inspector"></details> |
+| **Interactive Dashboard**<br>[examples/exampleDashboardRaw.q](examples/exampleDashboardRaw.q) | Streaming financial chart with crosshairs and indicators. See `exampleDashboard.q` for the `.vis.dash` version. | <details><summary>View</summary><img src="gifs/DashDemo.gif" alt="Dashboard"></details> |
+| **Demon Arena (FPS)**<br>[game/fps.q](game/fps.q) | First-person shooter on a heightmap raycaster. Climbable stairs, pixel-art sprites. | <details><summary>View</summary><img src="gifs/DoomDemo.gif" alt="FPS"></details> |
+| **Touchdown Run**<br>[game/football.q](game/football.q) | 3D arcade runner with Verlet ragdoll physics. Dodge defenders. | |
+| **Doom-Style Maze**<br>[examples/exampleDoom.q](examples/exampleDoom.q) | Wolfenstein-style 3D maze rendering with textures and collision detection. | <details><summary>View</summary><img src="gifs/DoomDemo.gif" alt="Doom"></details> |
+| **Interactive Ray Tracer**<br>[examples/exampleRay.q](examples/exampleRay.q) | CPU ray tracer with shadows, sphere intersections, and camera rotation. | <details><summary>View</summary><img src="gifs/RayDemo.gif" alt="Ray Tracer"></details> |
+| **Mandelbrot Explorer**<br>[examples/exampleMandelbrot.q](examples/exampleMandelbrot.q) | Fractal explorer with WASD panning and dynamic zoom (R/F). | <details><summary>View</summary><img src="gifs/MandelDemo.gif" alt="Mandelbrot"></details> |
+| **Conway's Game of Life**<br>[examples/exampleLife.q](examples/exampleLife.q) | 1920x1080 cellular automaton, fully vectorised in native q. | <details><summary>View</summary><img src="gifs/LifeDemo.gif" alt="Life"></details> |
+| **Water Ripple**<br>[examples/exampleRipple.q](examples/exampleRipple.q) | 2D wave-equation solver showing ripple propagation and interference. | <details><summary>View</summary><img src="gifs/RippleDemo.gif" alt="Ripple"></details> |
+| **Bouncing Ball**<br>[examples/exampleBounce.q](examples/exampleBounce.q) | Gravity physics using basic drawing primitives, with a translucent motion trail. | <details><summary>View</summary><img src="gifs/BounceDemo.gif" alt="Bounce"></details> |
+| **Plasma Wave Effect**<br>[examples/exampleAnimation.q](examples/exampleAnimation.q) | Sine-wave plasma computed in q and blasted to the canvas via `setpixels`. | <details><summary>View</summary><img src="gifs/PlasmaDemo.gif" alt="Plasma"></details> |
+| **Text Rendering**<br>[examples/exampleText.q](examples/exampleText.q) | Bitmap font showcase: scaling, marquee scrolling, and colour animation. | <details><summary>View</summary><img src="gifs/TextDemo.gif" alt="Text"></details> |
+| **Boids**<br>[examples/exampleBoids.q](examples/exampleBoids.q) | Flocking algorithm (separation, alignment, cohesion) in vectorised q. | |
+| **Finance Order Book**<br>[examples/exampleFinance.q](examples/exampleFinance.q) | Live-streaming limit order book and trade price charts. | |
 
 ---
 

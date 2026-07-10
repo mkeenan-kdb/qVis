@@ -928,6 +928,74 @@ K q_text_size(K font_id, K str) {
   return r;
 }
 
+// q_text_ink_box[font_id; str] -> (offsetX; offsetY; width; height)
+// TTF_GetStringSize (q_text_size) reports the font's full line metrics
+// (ascent+descent+leading), which is usually taller than the pixels a given
+// string actually inks - e.g. a string with no descenders like "DVD" leaves
+// dead descender space below the glyphs. This renders the string exactly as
+// drawtext[] does and scans the alpha channel for the tight bounding box of
+// non-transparent pixels, so callers doing pixel-accurate collision (like
+// bouncing text off a window edge) can use the real visible extent instead.
+// offsetX/offsetY are relative to the (x,y) anchor passed to drawtext[].
+K q_text_ink_box(K font_id, K str) {
+  if (font_id->t != -KI || str->t != KC)
+    return krr((S) "type");
+
+  int font_idx = font_id->i;
+  if (font_idx < 0 || font_idx >= (int)g_fonts.size() || !g_fonts[font_idx])
+    return krr((S) "invalid font id");
+
+  std::string text((char *)kC(str), str->n);
+  TTF_Font *font = g_fonts[font_idx];
+
+  int minX = 0, minY = 0, w = 0, h = 0;
+  if (!text.empty()) {
+    SDL_Color white = {255, 255, 255, 255};
+    SDL_Surface *surf =
+        TTF_RenderText_Blended(font, text.c_str(), text.length(), white);
+    if (!surf)
+      return krr((S) "TTF_RenderText_Blended failed");
+
+    SDL_Surface *converted = SDL_ConvertSurface(surf, SDL_PIXELFORMAT_ARGB8888);
+    SDL_DestroySurface(surf);
+    if (!converted)
+      return krr((S) "surface conversion failed");
+
+    uint32_t *pixels = (uint32_t *)converted->pixels;
+    int sw = converted->w, sh = converted->h;
+    int maxX = -1, maxY = -1;
+    minX = sw;
+    minY = sh;
+    for (int y = 0; y < sh; ++y) {
+      for (int x = 0; x < sw; ++x) {
+        if ((pixels[y * sw + x] >> 24) & 0xFF) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+    SDL_DestroySurface(converted);
+
+    if (maxX >= minX) {
+      w = maxX - minX + 1;
+      h = maxY - minY + 1;
+    } else {
+      // fully transparent render (e.g. an all-space string) - no ink
+      minX = 0;
+      minY = 0;
+    }
+  }
+
+  K r = ktn(KI, 4);
+  kI(r)[0] = minX / g_scale;
+  kI(r)[1] = minY / g_scale;
+  kI(r)[2] = w / g_scale;
+  kI(r)[3] = h / g_scale;
+  return r;
+}
+
 K q_display_size(K unused) {
   SDL_Init(SDL_INIT_VIDEO);
   SDL_DisplayID primaryDisplay = SDL_GetPrimaryDisplay();
