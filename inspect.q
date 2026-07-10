@@ -73,7 +73,7 @@ if[()~@[key;`.qvis;()];
 .vis.HOT:([] x:0#0; y:0#0; w:0#0; h:0#0; rc:0#0b; act:());  / this frame's hotspots
 .vis.OZTS:(::); .vis.OT:0;                                  / saved .z.ts and \t
 .vis.RUN:0b;
-.vis.DEBUG:0b;
+.vis.DEBUG:`debug in lower key .Q.opt .z.x;
 
 / ---------------------------------------------------------------------------
 / Framework - one .z.ts loop, a stack of views, a hotspot table.
@@ -324,7 +324,11 @@ if[()~@[key;`.qvis;()];
 / ---------------------------------------------------------------------------
 / Text view - scrollable lines; reused for function source and values
 / ---------------------------------------------------------------------------
-.vis.txtView:{[nm;lines] `name`draw`state!(nm;.vis.txtDraw;`off`lines!(0;lines))}
+.vis.openInEditor:{[fq]
+  .vis.REPLB:.vis.srcLines fq;
+  .vis.push .vis.replView[];}
+
+.vis.txtView:{[nm;lines] `name`draw`state!(nm;.vis.txtDraw;`off`lines`fq!(0;lines;$[-11h=type nm; nm; ::]))}
 
 / character-level syntax colorizer — works for both q and k code
 / returns a color list the same length as the input string
@@ -384,12 +388,17 @@ if[()~@[key;`.qvis;()];
   off:.vis.scroll[ev;page;0|count[ls]-page;st`off]; .vis.put[`off;off];
   shown:page sublist off _ ls;
   .vis.qline[8]'[18+10*til count shown;shown];
-  .vis.drawText[8;.vis.H-35;.vis.FONT_PROP;.qvis.gray;(string count ls)," lines  esc back"];}
+  if[not (st`fq)~(::);
+    .vis.drawText[8;.vis.H-35;.vis.FONT_PROP;.qvis.gray;(string count ls)," lines   click=edit   esc=back"];
+    .vis.spot[8;.vis.H-38;120;14;{[fq;e] .vis.openInEditor fq}[st`fq]];
+    if[`e in ev`new; .vis.openInEditor st`fq]];
+  if[(st`fq)~(::);
+    .vis.drawText[8;.vis.H-35;.vis.FONT_PROP;.qvis.gray;(string count ls)," lines  esc=back"]];}
 
-.vis.srcLines:{[fq]
-  v:get fq;
-  s:$[100h=type v; last value v; .Q.s1 v];
-  if[10h<>abs type s; s:.Q.s1 v];
+.vis.srcLines:{[v]
+  val:$[-11h=type v; @[get;v;{x}]; v];
+  s:$[100h=type val; last value val; 10h=abs type val; val; .Q.s1 val];
+  if[10h<>abs type s; s:.Q.s1 val];
   .vis.wrap[.vis.TXTC;"\n" vs s]}
 .vis.valLines:{[fq] .vis.wrap[.vis.TXTC;"\n" vs -1_.Q.s get fq]}
 
@@ -505,7 +514,7 @@ if[()~@[key;`.qvis;()];
   s:"rows ",(.vis.fmtnum st`n),"  ",(string off+$[m>0;1;0]),"-",string off+m;
   if[not null first st`srt;
     s,:"  sort ",(string first st`srt),$[last st`srt;" asc";" desc"]];
-  s,"  header sorts  row inspects  esc back"}
+  s,"  header=sorts   row=inspects   esc=back"}
 
 / ---------------------------------------------------------------------------
 / Namespace explorer
@@ -546,7 +555,7 @@ if[()~@[key;`.qvis;()];
   shown:page sublist off _ rows;
   .vis.nsRow'[til count shown;shown];
   .vis.drawText[8;.vis.H-35;.vis.FONT_PROP;.qvis.gray;
-    (string n)," entries  click to open  esc back"];}
+    (string n)," entries   click=open   esc=back/quit"];}
 
 .vis.nsRow:{[i;r]
   y:30+10*i;
@@ -562,8 +571,12 @@ if[()~@[key;`.qvis;()];
   .vis.spotR[4;y-1;630;10;.vis.nsMenu r];}
 
 .vis.nsMenu:{[r;e]
-  .vis.menu[("open";"copy name");
-    (.vis.nsAct[r`fq;r`kind];{[fq;e] .qvis.setclip string fq}[r`fq])];}
+  opts:("open";"copy name");
+  acts:(.vis.nsAct[r`fq;r`kind];{[fq;e] .qvis.setclip string fq}[r`fq]);
+  if[r[`kind] in `fn`var;
+    opts,:enlist "open in editor";
+    acts,:enlist {[fq;e] .vis.openInEditor fq}[r`fq]];
+  .vis.menu[opts;acts];}
 
 .vis.nsAct:{[fq;kind;e]
   $[kind=`ns; .vis.push .vis.nsView fq;
@@ -1001,7 +1014,7 @@ if[()~@[key;`.qvis;()];
   ix:off+til 0|page&n-off;
   mx:1|max 0,raze st[`pns] ix;
   .vis.dbRow[st;mx]'[til count ix;ix];
-  .vis.drawText[8;.vis.H-35;.vis.FONT_PROP;.qvis.gray;"click a table to open  esc back"];}
+  .vis.drawText[8;.vis.H-35;.vis.FONT_PROP;.qvis.gray;"click a table to open   esc back"];}
 
 .vis.dbRow:{[st;mx;i;j]
   y:32+12*i;
@@ -1187,11 +1200,23 @@ if[()~@[key;`.qvis;()];
 .vis.EDR:26;                                / visible editor rows
 .vis.EDK:`backspace`delete`left`right`up`down`home`end;  / repeatable keys
 .vis.REPLB:enlist "";                       / persistent editor buffer
+.vis.SCRATCHB:enlist "";                    / persistent scratch pad
 
-.vis.repl:{[] .vis.open .vis.replView[]}
-.vis.replView:{[]
-  st:`lines`cy`cx`off`out`ooff`rc`fc`capture`sa!
-    (.vis.REPLB;-1+count .vis.REPLB;count last .vis.REPLB;0;();0;0;0;1b;-1);
+.vis.repl:{[x]
+  isScratch:(::)~x;
+  if[not isScratch;
+    t:type x;
+    isf:$[t within (100;112); 1b;
+          t in -11 -10h; [val:@[get;$[-10h=t;`$x;x];(::)]; (type val) within (100;112)];
+          0b];
+    if[not isf; '"repl: expected a function"];
+    .vis.REPLB:.vis.srcLines x];
+  if[isScratch;
+    .vis.REPLB:.vis.SCRATCHB];
+  .vis.open .vis.replView[isScratch]}
+.vis.replView:{[isScratch]
+  st:`lines`cy`cx`off`out`ooff`rc`fc`capture`sa`isScratch!
+    (.vis.REPLB;-1+count .vis.REPLB;count last .vis.REPLB;0;();0;0;0;1b;-1;isScratch);
   `name`draw`state!(`repl;.vis.replDraw;st)}
 
 / pure editor ops on the state dict - lines/cy/cx are the buffer and cursor
@@ -1336,6 +1361,7 @@ if[()~@[key;`.qvis;()];
       st[`cx]:count[st[`lines]st`cy]&0|(ev[`mx]-8) div .vis.MONOW]];
   st[`fc]:1+st`fc;
   .vis.REPLB::st`lines;
+  if[1b~st`isScratch; .vis.SCRATCHB::st`lines];
   / executed code may itself have opened a view (.vis.tab etc.) and replaced
   / the stack - don't write repl state over it, just yield the frame
   if[$[count .vis.STACK; not `repl~(last .vis.STACK)`name; 1b]; :(::)];
@@ -1362,4 +1388,4 @@ if[()~@[key;`.qvis;()];
     $[(0<count s) and "'"=first s;.qvis.red;.qvis.white];s]}[edh+8]
     '[til count oshown;oshown];
   .vis.drawText[8;.vis.H-12;.vis.FONT_PROP;.qvis.gray;
-    "cmd+enter run  cmd+v paste  tab indent  shift+arrows/cmd+a select  cmd+c/x copy/cut  esc back"];}
+    "cmd+enter=run   cmd+v=paste   tab=indent   shift+arrows/cmd+a=select   cmd+c/x=copy/cut   esc=back"];}
