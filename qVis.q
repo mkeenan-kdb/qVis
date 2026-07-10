@@ -196,29 +196,11 @@ displaysize: { c_displaysize[::] }
 loadfont: { [path; pt_size] c_loadfont[$[(type path)=-10h; enlist path; path]; `int$pt_size] }
 
 // sysfonts
-//   A dictionary of proportional (`prop) and monospace (`mono) TTF font paths
-//   across different systems (macOS, Linux, Windows), ordered by preference.
+//   A dictionary of proportional (`prop) and monospace (`mono) bundled TTF font paths.
+qvisBase:$[count e:getenv`QVIS; e; "."];
 sysfonts:()!()
-sysfonts[`prop]:(
-  "/System/Library/Fonts/Supplemental/Arial.ttf";
-  "/System/Library/Fonts/Arial.ttf";
-  "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
-  "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf";
-  "/usr/share/fonts/TTF/DejaVuSans.ttf";
-  "/usr/share/fonts/liberation/LiberationSans-Regular.ttf";
-  "C:/Windows/Fonts/arial.ttf"
-  )
-sysfonts[`mono]:(
-  "/System/Library/Fonts/SFNSMono.ttf";
-  "/System/Library/Fonts/Supplemental/Courier New.ttf";
-  "/System/Library/Fonts/Courier New.ttf";
-  "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf";
-  "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf";
-  "/usr/share/fonts/TTF/DejaVuSansMono.ttf";
-  "/usr/share/fonts/liberation/LiberationMono-Regular.ttf";
-  "C:/Windows/Fonts/cour.ttf";
-  "C:/Windows/Fonts/consola.ttf"
-  )
+sysfonts[`prop]:enlist qvisBase,"/assets/fonts/Roboto-Regular.ttf"
+sysfonts[`mono]:enlist qvisBase,"/assets/fonts/RobotoMono-Regular.ttf"
 
 // loadsysfont[style; pt_size]
 //   style   - `prop or `mono

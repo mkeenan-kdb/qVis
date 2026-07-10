@@ -257,7 +257,7 @@ q examples/exampleDashboard.q
 | `.qvis.polygon` | `[xs; ys; colour]` | Draws a filled simple polygon (scanline fill) through the given vertex coordinates. |
 | `.qvis.text` | `[x; y; scale; colour; str]` | Renders a string using the built-in 5x7 bitmap font. |
 | `.qvis.loadfont` | `[path; pt_size]` | Loads a TrueType/OpenType font file and returns an integer font id. |
-| `.qvis.loadsysfont` | `[style; pt_size]` | Tries a list of common system font paths for `` `prop `` or `` `mono `` (see `.qvis.sysfonts`) and returns the first that loads, or `-1i` if none are found. |
+| `.qvis.loadsysfont` | `[style; pt_size]` | Loads the bundled open-source fallback font (Roboto/Roboto Mono) for `` `prop `` or `` `mono `` and returns the font id, or `-1i` if it fails. |
 | `.qvis.drawtext` | `[x; y; font_id; colour; str]` | Renders a string with a font loaded via `loadfont`/`loadsysfont`. |
 | `.qvis.textsize` | `[font_id; str]` | Returns `(width; height)` in pixels of `str` rendered with `font_id`. |
 | `.qvis.displaysize` | `[]` | Returns a dict `` `w`h `` of the primary monitor's usable display bounds. |
