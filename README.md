@@ -1,6 +1,6 @@
 # qVis & .vis Inspector
 
-**qVis** is a graphical engine for [kdb+/q](https://kx.com) that opens a 60fps SDL3 window directly from the q REPL. It provides immediate-mode drawing primitives (pixels, lines, rectangles, circles, text), bulk pixel blasting via `setpixels`, and edge-detected keyboard and mouse input - all without blocking the q session.
+**qVis** is a graphical engine for [kdb+/q](https://kx.com) that opens a 60fps, resizable SDL3 window directly from the q REPL. It provides immediate-mode drawing primitives (pixels, lines, rectangles, circles, polygons, text), true TrueType/OpenType text rendering via SDL_ttf, translucent/alpha-blended fills, bulk pixel blasting via `setpixels`, and edge-detected keyboard and mouse input - all without blocking the q session.
 
 On top of the engine lives **`inspect.q`**, a full visual workspace inspector. Load it into any running q process and you can immediately browse, sort, and filter tables of any size, explore namespaces, plot line/scatter/histogram/candlestick/bar charts, watch live-updating views of a streaming table, inspect anything through right-click context menus, watch memory in real-time, and run q code in a syntax-highlighted editor - all in the same window, all while the session stays live.
 
@@ -44,7 +44,7 @@ A sample of what you can build on the `qVis` engine:
 | **Mandelbrot Explorer**<br>[examples/exampleMandelbrot.q](examples/exampleMandelbrot.q) | Fractal explorer with WASD panning and dynamic zoom (R/F). | ![Mandelbrot](gifs/MandelDemo.gif) |
 | **Conway's Game of Life**<br>[examples/exampleLife.q](examples/exampleLife.q) | 1920x1080 cellular automaton, fully vectorised in native q. | ![Game of Life](gifs/LifeDemo.gif) |
 | **Water Ripple Interference**<br>[examples/exampleRipple.q](examples/exampleRipple.q) | Two-dimensional wave-equation solver showing ripple propagation and interference. | ![Water Ripple](gifs/RippleDemo.gif) |
-| **Bouncing Ball**<br>[examples/exampleBounce.q](examples/exampleBounce.q) | Simple gravity physics using the basic drawing primitives. | ![Bouncing Ball](gifs/BounceDemo.gif) |
+| **Bouncing Ball**<br>[examples/exampleBounce.q](examples/exampleBounce.q) | Simple gravity physics using the basic drawing primitives, with a translucent alpha-blended motion trail. | ![Bouncing Ball](gifs/BounceDemo.gif) |
 | **Plasma Wave Effect**<br>[examples/exampleAnimation.q](examples/exampleAnimation.q) | Sine-wave plasma computed in q and blasted to the canvas via `setpixels`. | ![Plasma Effect](gifs/PlasmaDemo.gif) |
 | **Text Rendering**<br>[examples/exampleText.q](examples/exampleText.q) | Built-in 5x7 bitmap font demo: scaling, marquee scrolling, and blinking text. | ![Text Rendering](gifs/TextDemo.gif) |
 
@@ -54,6 +54,7 @@ A sample of what you can build on the `qVis` engine:
 
 - **kdb+/q** - version 3 or later (e.g. the free 64-bit Personal Edition from [kx.com](https://kx.com))
 - **SDL3** - Simple DirectMedia Layer v3 (`brew install sdl3` on macOS, or your system package manager)
+- **SDL3_ttf** - TrueType/OpenType text rendering (`brew install sdl3_ttf` on macOS, or your system package manager)
 - **CMake** - v3.20 or later
 - **C++20 compiler** - Clang, GCC, or MSVC
 
@@ -93,6 +94,8 @@ q qVis.q
 .qvis.shutdown[]              / close the window
 ```
 
+The window is freely resizable by dragging its edges - the `320x240` canvas is always letterboxed/pillarboxed to fill it without distortion, so drawing coordinates never need to change.
+
 ### Using the workspace inspector (`inspect.q`)
 
 Run from the repo root:
@@ -130,13 +133,13 @@ Then call any inspector function:
 
 ## 🔍 The .vis Workspace Inspector
 
-`inspect.q` is a self-contained interactive GUI loaded into a live q session. Every view runs in the same 33ms timer loop, so data in the window reflects the current state of the session. All views share a navigation stack: clicking drills down, `Esc` goes back.
+`inspect.q` is a self-contained interactive GUI loaded into a live q session. Every view runs in the same 33ms timer loop, so data in the window reflects the current state of the session. All views share a navigation stack: clicking drills down, `Esc` goes back. The window opens at 80% of your display size and is freely resizable by dragging its edges - the canvas is letterboxed/pillarboxed to keep its aspect ratio rather than stretching.
 
 ### Table Browser (`.vis.tab`)
 Browses any table - in-memory, keyed, splayed, or date-partitioned - without loading it fully into RAM. Rows are fetched lazily so even billion-row HDB tables are usable. Click a column header to sort ascending or descending (the sort index is kept in memory; the table is never copied - sorts over `.vis.MAXSORT` rows are refused to avoid OOM). Click a row to see the full record with all columns untruncated. Right-click a cell for a context menu: copy the value, filter the table by it, plot the column, or inspect the row. Type `/where-clause` (e.g. `/price>100`) at the command bar to open a filtered view - `Esc` clears it. Use `Left`/`Right` arrow keys to page through columns that do not fit the window.
 
 ### Namespace Explorer (`.vis.ns`)
-Walks the q namespace tree. Each entry shows the symbol name, kind (table, function, variable, namespace), type code, element count, and serialised size. Click any entry to drill into a namespace, open a table in the table browser, or view a function's source or a variable's value. Right-click an entry to open it or copy its name; type `/substring` at the command bar to filter entries by name. The view refreshes after every command-bar expression, so deleting or redefining a global is reflected immediately.
+Walks the q namespace tree. Each entry shows the symbol name, kind (table, function, variable, namespace), type code, element count, and serialised size. Click any entry to drill into a namespace, open a table in the table browser, or view a function's source or a variable's value. Right-click a function or variable for an "open in editor" option that jumps straight into `.vis.repl` with its source pre-loaded, ready to tweak and re-run. Right-click any entry to copy its name; type `/substring` at the command bar to filter entries by name. The view refreshes after every command-bar expression, so deleting or redefining a global is reflected immediately.
 
 ### Partitioned Database Viewer (`.vis.db`)
 Shows every table in the loaded HDB with a bar chart of row counts across partitions, making it easy to spot missing or thin partitions. Click a table name to open it in the table browser.
@@ -145,10 +148,10 @@ Shows every table in the loaded HDB with a bar chart of row counts across partit
 Plots `.Q.w[]` fields (used, heap, peak, mmap, syms) as horizontal bars with a scrolling history graph of `used` over the last ~300 frames. Useful for watching memory grow during a query or after loading data.
 
 ### Charts
-- **`.vis.plot[x]`** - line chart. Accepts a numeric vector (single line), a list of vectors (one line per element), or a table (numeric columns become lines, a time or date column becomes the x-axis). Points are placed by their real x value, not row position - irregularly spaced time series and series of different lengths land where they actually belong instead of stretching to fill the width. Infinite values are dropped from the axis range so a stray `1%0` doesn't take down the view.
+- **`.vis.plot[x]`** - line chart, with a translucent shaded fill under each line down to the plot floor. Accepts a numeric vector (single line), a list of vectors (one line per element), or a table (numeric columns become lines, a time or date column becomes the x-axis). Points are placed by their real x value, not row position - irregularly spaced time series and series of different lengths land where they actually belong instead of stretching to fill the width. Infinite values are dropped from the axis range so a stray `1%0` doesn't take down the view. Hovering shows a crosshair with the nearest value per series.
 - **`.vis.hist[x; n]`** - histogram with `n` buckets.
-- **`.vis.scatter[x; y]`** - 2D scatter plot with x-axis ticks and a hover crosshair readout; nulls and infinities are dropped. `x` can be a temporal vector - ticks and the crosshair readout format it accordingly.
-- **`.vis.candle[t]`** - OHLC candlestick chart of a table with `open`/`high`/`low`/`close` columns; more candles than fit the window are bucketed (first/max/min/last) so the shape survives.
+- **`.vis.scatter[x; y]`** - 2D scatter plot with x-axis ticks and a hover crosshair readout; nulls and infinities are dropped. Points are drawn translucent, so overlapping points compound into visibly denser clusters instead of one flat smear. `x` can be a temporal vector - ticks and the crosshair readout format it accordingly.
+- **`.vis.candle[t]`** - OHLC candlestick chart of a table with `open`/`high`/`low`/`close` columns; more candles than fit the window are bucketed (first/max/min/last) so the shape survives. Hovering shows a crosshair with the OHLC values under the cursor.
 - **`.vis.bar[x; y]`** - bar chart of `y` values labelled by `x`; bars grow from a zero baseline so negative values hang below it.
 - **`.vis.watch[t; ms]`** - live plot: re-fetches the newest `.vis.WROWS` rows of `t` (a table name or a nullary function returning a table) every `ms` milliseconds.
 - **`.vis.watchAs[t; ms; kind]`** - same refresh loop, any view: `` `plot `` (what `.vis.watch` uses), `` `candle ``, `` `tab `` for a follow-the-tail table browser (a graphical `tail -f`), `` `hist `` (bins the first numeric column), or `` `bar `` (first symbol/string column as labels, first numeric column as values).
@@ -168,7 +171,7 @@ Each panel is `(kind; src; cell)` or `(kind; src; cell; ms)` (default 1000ms): `
 **Pitfall - only the top of the stack redraws.** If one panel's `src` is a function that advances a feed (appends rows, mutates a global) and other panels merely *read* the resulting table, the readers only look live while the driving panel is also visible - the moment you zoom into a reader panel, the driver stops being called and its data freezes. Give every panel that needs to look live its own `src` that advances things itself (harmless to call the same feed function from multiple panels - each call just appends), or accept that reference panels showing already-static data (a historical table, a fixed aggregate) simply won't animate, which is fine when that's the intent.
 
 ### q REPL (`.vis.repl`)
-A multiline q editor with syntax highlighting. The buffer persists across open and close.
+A multiline q editor with syntax highlighting. `.vis.repl[]` opens a persistent scratch buffer that survives across open and close. `.vis.repl[f]` - where `f` is a function value, or a symbol/string naming one - instead opens the editor pre-loaded with that function's source, so you can jump into it from the terminal and tweak-and-rerun it directly (this is also what the namespace explorer's "open in editor" menu item uses).
 
 - `Enter` - newline; `Cmd/Ctrl+Enter` - run the buffer and show the result below.
 - `Tab` - insert two spaces.
@@ -204,7 +207,7 @@ Globals you can set at any time to trade safety/speed for coverage:
 | `.vis.MAXSORT` | 50M | Max rows to sort or plot a column of (both materialise one full column; larger tables are refused with a message). |
 | `.vis.WROWS` | 10000 | Tail rows fetched per `.vis.watch` / `.vis.watchAs` refresh cycle. |
 | `.vis.SZMAX` | 1M | Namespace explorer skips the serialised-size probe (`-22!`) for values with more items than this. |
-| `.vis.TROWS` | 38 | Visible rows in table and text views. |
+| `.vis.TROWS` | computed from window height | Visible rows in table and text views. |
 
 **If the window freezes:** q pauses all timers while the session is at a debug prompt (`q))` or busy evaluating an expression. The inspector cannot repaint until control returns. Type `\` at the terminal to leave the debugger and the window resumes. This is normal q behaviour, not a hang.
 
@@ -282,7 +285,7 @@ Standalone programs demonstrating different aspects of the engine:
 | :--- | :--- |
 | `exampleAnimation.q` | Sine-wave plasma generator pushed to the screen via `setpixels`. |
 | `exampleBoids.q` | Craig Reynolds' Boids flocking algorithm (separation, alignment, cohesion) in vectorised q. |
-| `exampleBounce.q` | Gravity and velocity integration using basic drawing primitives. |
+| `exampleBounce.q` | Gravity and velocity integration using basic drawing primitives, with a translucent motion trail via alpha blending. |
 | `exampleDashboard.q` | The same streaming market-data dashboard as `exampleDashboardRaw.q`, built with `inspect.q`'s `.vis.dash` in about a tenth of the code. |
 | `exampleDashboardRaw.q` | Streaming multi-symbol market-data dashboard: price chart, volume bars, clickable symbol list and session stats, built directly on `.qvis` (no `inspect.q`). |
 | `exampleDoom.q` | Standalone raycasting maze (same core engine as `game/fps.q`). |
@@ -313,8 +316,15 @@ q examples/exampleDashboard.q
 | `.qvis.line` | `[x1; y1; x2; y2; colour]` | Draws a line between two points. |
 | `.qvis.rect` | `[x; y; w; h; colour]` | Draws a filled rectangle. |
 | `.qvis.circle` | `[x; y; r; colour]` | Draws a filled circle. |
+| `.qvis.polygon` | `[xs; ys; colour]` | Draws a filled simple polygon (scanline fill) through the given vertex coordinates. |
 | `.qvis.text` | `[x; y; scale; colour; str]` | Renders a string using the built-in 5x7 bitmap font. |
+| `.qvis.loadfont` | `[path; pt_size]` | Loads a TrueType/OpenType font file and returns an integer font id. |
+| `.qvis.loadsysfont` | `[style; pt_size]` | Tries a list of common system font paths for `` `prop `` or `` `mono `` (see `.qvis.sysfonts`) and returns the first that loads, or `-1i` if none are found. |
+| `.qvis.drawtext` | `[x; y; font_id; colour; str]` | Renders a string with a font loaded via `loadfont`/`loadsysfont`. |
+| `.qvis.textsize` | `[font_id; str]` | Returns `(width; height)` in pixels of `str` rendered with `font_id`. |
+| `.qvis.displaysize` | `[]` | Returns a dict `` `w`h `` of the primary monitor's usable display bounds. |
 | `.qvis.setpixels` | `[buf]` | Blits a `w*h` integer list of ARGB colours directly to the back buffer. |
+| `.qvis.getpixel` | `[x; y]` | Reads back the composited RGB colour currently at `(x;y)` in the back buffer. |
 | `.qvis.present` | `[]` | Flushes the back buffer to the screen. |
 | `.qvis.keyz` | `[]` | Returns a symbol list of all keys currently held down. |
 | `.qvis.mouse` | `[]` | Returns a dict `x`y`l`r`w`c` of mouse position, button state, wheel delta, and window-close flag. |
@@ -325,7 +335,7 @@ q examples/exampleDashboard.q
 | `.qvis.pollReset` | `[]` | Clears edge-detection state. Call this when reopening a view. |
 | `.qvis.shutdown` | `[]` | Closes the window and releases resources. |
 
-**Predefined colours:** `.qvis.black`, `.qvis.white`, `.qvis.red`, `.qvis.green`, `.qvis.blue`, `.qvis.yellow`, `.qvis.cyan`, `.qvis.magenta`, `.qvis.gray`. Any 32-bit integer is accepted, e.g. `0xFF8800i` for orange.
+**Predefined colours:** `.qvis.black`, `.qvis.white`, `.qvis.red`, `.qvis.green`, `.qvis.blue`, `.qvis.yellow`, `.qvis.cyan`, `.qvis.magenta`, `.qvis.gray`. Any 32-bit integer is accepted, e.g. `0xFF8800i` for orange. Every drawing function honours the colour's alpha byte for translucent fills - build one with `.qvis.fade[a; colour]` (`a` 1-255) rather than by hand, e.g. `.qvis.fade[80; .qvis.cyan]` for a mostly-see-through cyan.
 
 ### `inspect.q` - Workspace Inspector (`.vis` namespace)
 
@@ -335,7 +345,7 @@ q examples/exampleDashboard.q
 | `.vis.ns` | `[]` | Opens the namespace and variable explorer. |
 | `.vis.db` | `[]` | Opens the partitioned database overview. |
 | `.vis.mem` | `[]` | Opens the live memory monitor. |
-| `.vis.repl` | `[]` | Opens the multiline q editor. |
+| `.vis.repl` | `[]` or `[f]` | Opens the multiline q editor: `[]` reopens the persistent scratch buffer, `[f]` (a function, or a symbol/string naming one) pre-loads that function's source. |
 | `.vis.plot` | `[x]` | Line chart. Accepts a numeric vector, list of vectors, or table (a temporal column becomes the x-axis with time-aware tick marks). |
 | `.vis.hist` | `[x; n]` | Histogram of `x` with `n` buckets. |
 | `.vis.scatter` | `[x; y]` | 2D scatter plot of two numeric vectors, with a hover crosshair readout. |
