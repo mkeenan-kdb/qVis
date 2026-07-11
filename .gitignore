@@ -7,3 +7,5 @@ db/
 future_ideas.md
 .cache/
 .clangd/
+startProcs.sh
+qtop.q
