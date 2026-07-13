@@ -197,7 +197,7 @@ loadfont: { [path; pt_size] c_loadfont[$[(type path)=-10h; enlist path; path]; `
 
 // sysfonts
 //   A dictionary of proportional (`prop) and monospace (`mono) bundled TTF font paths.
-qvisBase:$[count e:getenv`QVIS; e; "."];
+qvisBase:$[count e:getenv`QVIS; e; first system "pwd"];
 sysfonts:()!()
 sysfonts[`prop]:enlist qvisBase,"/assets/fonts/Roboto-Regular.ttf"
 sysfonts[`mono]:enlist qvisBase,"/assets/fonts/RobotoMono-Regular.ttf"

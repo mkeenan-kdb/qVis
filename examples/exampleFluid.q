@@ -34,7 +34,7 @@ system "S ",string `int$.z.t
 / The hash grid does ~30 pair interactions per particle regardless of N,
 / so 3,000 fine-grained particles cost less than 875 did under the old
 / all-pairs matrices (~3.5ms per substep at full pool density).
-NC:120; NR:100; N:NC*NR;
+NC:100; NR:80; N:NC*NR;
 SP:5f;                              / initial lattice spacing (px)
 
 ix: til[N] mod NC; iy: til[N] div NC;
