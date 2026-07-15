@@ -1,6 +1,9 @@
 # qVis
 
-![Full Demo](gifs/Full_Demo_CC.gif)
+<p align="center">
+  <img src="gifs/qOSDemo.gif" width="49%">
+  <img src="gifs/Full_Demo_CC.gif" width="49%">
+</p>
 
 **qVis** is a graphical engine for [kdb+/q](https://kx.com): it opens a 60fps, resizable SDL3 window directly from the q REPL, without blocking the session. It provides immediate-mode drawing primitives (pixels, lines, rectangles, circles, polygons, text), true TrueType/OpenType text rendering via SDL_ttf, translucent/alpha-blended fills, bulk pixel blasting via `setpixels`, edge-detected keyboard and mouse input, and an event callback that wakes q the moment input arrives (`seteventcb`). The C++ layer lives in `native/qSDL.cpp`; `qVis.q` exposes it to q as the `.qvis` namespace.
 
@@ -51,8 +54,6 @@ q demo.q -inspect    # or the single-window inspector tour
 ---
 
 ## 💻 qOS Retro Desktop
-
-![qOS Demo](gifs/qOSDemo.gif)
 
 **qOS** is a desktop environment for kdb+/q, styled like an old operating system. Everything on screen is a live view of your q session: open the namespace explorer in one window, a billion-row table browser in another, a streaming candle chart in a third, and drive it all from the q console window or your own terminal - the windows update as the session changes.
 
