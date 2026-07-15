@@ -6,11 +6,12 @@
 \d .qvis
 
 // ---------------------------------------------------------------------------
-// Internal: Load C functions from the shared library. qSDL.so is resolved via
-// the QVIS env var (path to the qVis repo root) when set, else the current
-// directory - so either run q from the repo root or export QVIS first.
+// Internal: Load C functions from the shared library. qSDL.so (built into
+// native/) is resolved via the QVIS env var (path to the qVis repo root)
+// when set, else the current directory - so either run q from the repo
+// root or export QVIS first.
 // ---------------------------------------------------------------------------
-LIB:{`$":",$[count e:getenv`QVIS; e,"/qSDL"; "./qSDL"]}[]
+LIB:{`$":",$[count e:getenv`QVIS; e,"/native/qSDL"; "./native/qSDL"]}[]
 
 c_init:     LIB 2: (`q_init;     3)        // width; height; scale
 c_shutdown: LIB 2: (`q_shutdown; 1)        // ::
@@ -34,6 +35,7 @@ c_drawtext: LIB 2: (`q_draw_text; 5)       // x; y; font_id; color; string
 c_textsize: LIB 2: (`q_text_size; 2)       // font_id; string -> (width; height)
 c_textinkbox:LIB 2: (`q_text_ink_box;2)    // font_id; string -> (offsetX;offsetY;width;height)
 c_displaysize:LIB 2: (`q_display_size; 1)  // :: -> (w; h)
+c_seteventcb:LIB 2: (`q_seteventcb; 1)     // fn name string ("" disables)
 // ---------------------------------------------------------------------------
 // Colors - ARGB 32-bit integers (0xAARRGGBB).
 // You can also pass any int literal, e.g. 0xFF8800i for orange.
@@ -244,6 +246,19 @@ textsize: { [font_id; str] c_textsize[`int$font_id; $[(type str)=-10h; enlist st
 //   collision box, e.g. for bouncing text off a window edge.
 textinkbox: { [font_id; str] c_textinkbox[`int$font_id; $[(type str)=-10h; enlist str; str]] }
 
+// seteventcb[name]
+//   name - char vector naming a unary q function (e.g. ".qos.FRAMETS"), or
+//   "" to disable.
+//   While set, the native event pump applies the function (with a dummy 0i
+//   argument) on the q main thread whenever SDL activity arrives - keys,
+//   mouse, text, window expose/resize/focus, quit - coalesced to one call
+//   per ~16ms pump. The call fires from q's own select loop (sd1), so it
+//   never interrupts a running q computation. This is the push complement
+//   to poll[]: instead of redrawing on a fixed \t, set a callback that runs
+//   a frame and reserve \t for animation. shutdown[] clears it; re-register
+//   after the next init[].
+seteventcb: { [s] c_seteventcb $[-10h=type s; enlist s; s]; }
+
 // ---------------------------------------------------------------------------
 // Edge-detected input - poll[] wraps keyz[]/mouse[] and diffs against the
 // previous call, so callers get clean "just pressed" / "just clicked" events
@@ -276,7 +291,7 @@ poll: { []
 // ---------------------------------------------------------------------------
 // Text effect utilities - stateless helpers for animating text[]. Each takes
 // the elapsed/animation time t (seconds) and returns a value to plug into
-// your own .z.ts loop; see examples/exampleText.q for usage.
+// your own .z.ts loop; see apps/exampleText.q for usage.
 // ---------------------------------------------------------------------------
 
 // textWidth[scale; str]

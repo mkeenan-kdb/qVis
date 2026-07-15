@@ -1,4 +1,4 @@
-build/
+native/build/
 .vscode/
 *.so
 *.o

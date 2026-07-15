@@ -1,5 +1,8 @@
-/ demo.q - guided tour of the .vis inspector on realistic demo data.
-/ Run from the repo root:  q demo.q
+/ demo.q - guided tour of qVis: builds a realistic demo dataset, then opens
+/ either the classic .vis inspector menu or the qOS retro desktop.
+/ Run from the repo root:
+/   q demo.q -inspect    classic .vis inspector menu
+/   q demo.q -qos        qOS retro desktop (windowed)
 / (or from anywhere with QVIS=/path/to/qVis exported)
 / Builds:
 /   trade      1M-row date-partitioned tick table in db/ (random-walk prices)
@@ -9,8 +12,17 @@
 /   returns    20k normally-distributed floats
 /   xs, ys     correlated pairs for the scatter plot
 /   .stats     a small namespace to drill into with .vis.ns
-/ then prints a numbered menu - type demo N at the q prompt to run one.
 / NOTE db/ is only built when absent: rm -rf db and rerun to regenerate.
+
+QOS:any .z.x like "*qos*";
+INSPECT:any .z.x like "*inspect*";
+
+if[not QOS|INSPECT;
+  -1"Usage:";
+  -1"  q demo.q -inspect    classic .vis inspector menu";
+  -1"  q demo.q -qos        qOS retro desktop (windowed)";
+  exit 1;
+  ];
 
 / ---------------------------------------------------------------------------
 / Data generators
@@ -35,13 +47,14 @@
   t:update `p#sym from .Q.en[`:db] .demo.dayTab dt;
   (.Q.dd[`:db;(dt;`trade;`)]) set t;}
 
-/ build the partitioned db only when db/ is absent, before inspect.q
-/ auto-loads it (that load chdirs into db/, so build first from the root)
+/ build the partitioned db only when db/ is absent, before inspect.q/qOS.q
+/ auto-load it (that load chdirs into db/, so build first from the root)
 if[not `db in key `:.;
   -1"[demo] building db/trade (10 partitions of random-walk ticks)...";
   .demo.wrDay each .z.D-1+til 10];
 
-$[count e:getenv`QVIS; system"l ",e,"/inspect.q"; system"l inspect.q"];
+if[QOS; system"l qOS.q"];
+if[INSPECT; $[count e:getenv`QVIS; system"l ",e,"/inspect.q"; system"l inspect.q"]];
 
 / in-memory demo data
 .demo.DTS:.z.D-reverse 1+til 250;
@@ -92,63 +105,79 @@ delete m from `.;
   .demo.LIVE}
 
 \l db
+
 / ---------------------------------------------------------------------------
-/ Menu
+/ Launch
 / ---------------------------------------------------------------------------
-.demo.LIST:([]
-  name:("intraday price walk (partitioned query)";
-        "multi-series line plot, one per symbol";
-        "table plot with a time axis";
-        "histogram - normal returns";
-        "scatter - correlated pairs";
-        "table browser - 1M-row partitioned trade table";
-        "table browser - every q column type";
-        "partitioned-database overview";
-        "namespace explorer (drill into .stats)";
-        "live memory monitor";
-        "multiline q editor/REPL";
-        "OHLC candlestick - AAPL daily bars";
-        "bar chart - total volume by symbol";
-        "live watch - tail of trade, 1s refresh";
-        "LIVE candlestick - synthetic random-walk feed";
-        "LIVE table tail - a graphical tail -f";
-        "dashboard - plot/candle/bar/tab tiled in one window");
-  code:(".vis.plot select time, price from trade where date=max date, sym=`AAPL";
-        ".vis.plot flip exec close by sym from daily";
-        ".vis.plot sensors";
-        ".vis.hist[returns;60]";
-        ".vis.scatter[xs;ys]";
-        ".vis.tab `trade";
-        ".vis.tab alltypes";
-        ".vis.db[]";
-        ".vis.ns[]";
-        ".vis.mem[]";
-        ".vis.repl[]";
-        ".vis.candle select from daily where sym=`AAPL";
-        "{.vis.bar[key x;value x]} exec sum volume by sym from daily";
-        ".vis.watch[`trade;1000]";
-        ".vis.watchAs[.demo.feed;250;`candle]";
-        ".vis.watchAs[.demo.feed;250;`tab]";
-        ".vis.dash ((`plot;{select time,close from .demo.feed[]};0 0 1 1;250);(`candle;.demo.feed;1 0 1 1;250);(`bar;{r:last .demo.feed[]; ([] metric:`open`high`low`close; v:r`open`high`low`close)};0 1 1 1;250);(`tab;.demo.feed;1 1 1 1;250))"));
+if[QOS;
+  -1"";
+  -1"[demo] data loaded: trade daily sensors alltypes returns xs ys .stats  +  .demo.feed";
+  -1"[demo] open the q Console (desktop icon or start menu) and try:";
+  -1"    .vis.plot flip exec close by sym from daily";
+  -1"    .vis.candle select from daily where sym=`AAPL";
+  -1"    .vis.tab `trade";
+  -1"    .vis.hist[returns;60]";
+  -1"    .vis.scatter[xs;ys]";
+  -1"    .vis.watchAs[.demo.feed;250;`candle]";
+  -1"";
+  .qos.start[] ];
 
-.demo.menu:{[]
-  -1"\nqVis inspector demo - type demo N to run one:\n";
-  {[i;r] -1"  demo ",(2$string i),"  ",(50$r`name),"  ",r`code;}'
-    [1+til count .demo.LIST;.demo.LIST];
-  -1"\nIn the window: every view has a q) command bar at the bottom - type any";
-  -1"q code there and hit enter (try deleting a global while in .vis.ns, or";
-  -1"opening a plot from inside a table). \\l, \\t etc. work console-style.";
-  -1"Click drills down, esc goes back, the close button quits.\n";}
+if[INSPECT;
+  .demo.LIST:([]
+      name:("intraday price walk (partitioned query)";
+            "multi-series line plot, one per symbol";
+            "table plot with a time axis";
+            "histogram - normal returns";
+            "scatter - correlated pairs";
+            "table browser - 1M-row partitioned trade table";
+            "table browser - every q column type";
+            "partitioned-database overview";
+            "namespace explorer (drill into .stats)";
+            "live memory monitor";
+            "multiline q editor/REPL";
+            "OHLC candlestick - AAPL daily bars";
+            "bar chart - total volume by symbol";
+            "live watch - tail of trade, 1s refresh";
+            "LIVE candlestick - synthetic random-walk feed";
+            "LIVE table tail - a graphical tail -f";
+            "dashboard - plot/candle/bar/tab tiled in one window");
+      code:(".vis.plot select time, price from trade where date=max date, sym=`AAPL";
+            ".vis.plot flip exec close by sym from daily";
+            ".vis.plot sensors";
+            ".vis.hist[returns;60]";
+            ".vis.scatter[xs;ys]";
+            ".vis.tab `trade";
+            ".vis.tab alltypes";
+            ".vis.db[]";
+            ".vis.ns[]";
+            ".vis.mem[]";
+            ".vis.repl[]";
+            ".vis.candle select from daily where sym=`AAPL";
+            "{.vis.bar[key x;value x]} exec sum volume by sym from daily";
+            ".vis.watch[`trade;1000]";
+            ".vis.watchAs[.demo.feed;250;`candle]";
+            ".vis.watchAs[.demo.feed;250;`tab]";
+            ".vis.dash ((`plot;{select time,close from .demo.feed[]};0 0 1 1;250);(`candle;.demo.feed;1 0 1 1;250);(`bar;{r:last .demo.feed[]; ([] metric:`open`high`low`close; v:r`open`high`low`close)};0 1 1 1;250);(`tab;.demo.feed;1 1 1 1;250))"));
 
-demo:{[i]
-  if[(::)~i; :.demo.menu[]];
-  if[not i within (1;count .demo.LIST); :-1"demo: pick 1-",string count .demo.LIST];
-  r:.demo.LIST i-1;
-  -1"q) ",r`code;
-  res:@[value;r`code;{-1"demo error: ",x;}];
-  if[not any (::)~/:enlist res; show res];}
+    .demo.menu:{[]
+      -1"\nqVis inspector demo - type demo N to run one:\n";
+      {[i;r] -1"  demo ",(2$string i),"  ",(50$r`name),"  ",r`code;}'
+        [1+til count .demo.LIST;.demo.LIST];
+      -1"\nIn the window: every view has a q) command bar at the bottom - type any";
+      -1"q code there and hit enter (try deleting a global while in .vis.ns, or";
+      -1"opening a plot from inside a table). \\l, \\t etc. work console-style.";
+      -1"Click drills down, esc goes back, the close button quits.\n";
+      -1"Prefer windows? run  q demo.q -qos  for the qOS retro desktop.\n";};
 
-if[not `trade in tables[];
-  -1"[demo] db/ holds the old dummy data (no trade table) - partitioned demos";
-  -1"[demo] will fail. rm -rf db and rerun q demo.q to rebuild it."];
-.demo.menu[]
+    demo:{[i]
+      if[(::)~i; :.demo.menu[]];
+      if[not i within (1;count .demo.LIST); :-1"demo: pick 1-",string count .demo.LIST];
+      r:.demo.LIST i-1;
+      -1"q) ",r`code;
+      res:@[value;r`code;{-1"demo error: ",x;}];
+      if[not any (::)~/:enlist res; show res];};
+
+    if[not `trade in tables[];
+      -1"[demo] db/ holds the old dummy data (no trade table) - partitioned demos";
+      -1"[demo] will fail. rm -rf db and rerun q demo.q to rebuild it."];
+    .demo.menu[] ];

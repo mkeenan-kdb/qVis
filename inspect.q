@@ -896,7 +896,7 @@ if[()~@[key;`.qvis;()];
 / advances a feed and others merely read the result, those readers go
 / static the instant you zoom into any panel but the driver - give every
 / panel that should look live its own src that advances things itself
-/ (see examples/exampleDashboard.q)
+/ (see apps/exampleDashboard.q)
 / ---------------------------------------------------------------------------
 .vis.dash:{[panels] .vis.open .vis.dashView panels}
 
