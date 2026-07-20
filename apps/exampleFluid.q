@@ -119,8 +119,7 @@ step:{[]
 / disk stamp offsets (radius 2): big enough that neighbouring particles at
 / rest spacing (5px) overlap into a continuous body of water, not dots
 off: -1+til 5;
-/OX: `int$25#off; OY: `int$raze 5#'off;
-OX: enlist 0i; OY: enlist 0i;
+OX: `int$25#off; OY: `int$raze 5#'off;
 kp: where ((OX*OX)+OY*OY)<=5; OX: OX kp; OY: OY kp;
 
 .z.ts:{
