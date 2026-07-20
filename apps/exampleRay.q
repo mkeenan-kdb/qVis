@@ -53,7 +53,7 @@ RDX: u % nrm; RDY: v % nrm; RDZ: 1f % nrm;
 isect:{[i; ox;oy;oz; dx;dy;dz]
     ax: ox - SX i; ay: oy - SY i; az: oz - SZ i;
     b: (ax*dx) + (ay*dy) + (az*dz);
-    d: (b*b) - ((ax*ax) + (ay*ay) + (az*az)) - (SR i) * SR i;
+    d: (b*b) - ((ax*ax) + (ay*ay) + (az*az)) + (SR i) * SR i;
     t: (neg b) - sqrt d;
     ?[(d > 0f) & t > 1e-3; t; 0w] }
 
