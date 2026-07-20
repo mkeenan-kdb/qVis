@@ -82,7 +82,7 @@ seed:{[]
     / small dispersion folded into the launch angle
     vcirc: sqrt G*(CENTRAL+(sum M)*(rad*rad)%R*R)%1f|rad;
     disp: 0.12f*(N?1f)-0.5f;
-    VX:: vcirc*neg sin ang+disp; VY:: vcirc*cos ang+reverse disp;
+    VX:: vcirc*neg sin ang+disp; VY:: vcirc*cos ang+disp;
     A:: accel[]; }
 
 / Camera controls affect only the rendered view, never the physics.
